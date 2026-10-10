@@ -1,0 +1,8 @@
+data
+cat-runtime.env
+.tmp*
+runtime/cloud/classes
+node_modules
+**/node_modules
+**/.git
+vendor/tvspider/nodejs/package-lock.json

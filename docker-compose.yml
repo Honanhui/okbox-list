@@ -1,0 +1,20 @@
+services:
+  tvbox-list:
+    build:
+      context: .
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+    image: honamhui/okbox-list:0.1
+    container_name: okbox-list
+    restart: unless-stopped
+    ports:
+      - "9978:9978"
+    environment:
+      TZ: Asia/Shanghai
+      HOST: "::"
+      PORT: "9978"
+      CONFIG_PATH: /data/config.json
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+    volumes:
+      - ./data:/data
+    stop_grace_period: 15s
