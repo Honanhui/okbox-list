@@ -1,0 +1,8 @@
+{
+  "settings": {
+    "playMode": "proxy",
+    "defaultSiteId": ""
+  },
+  "refreshMinutes": 60,
+  "configUrls": []
+}

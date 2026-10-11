@@ -1,0 +1,3 @@
+import {spawn} from 'node:child_process';import assert from 'node:assert/strict';
+const child=spawn(process.execPath,['server.js'],{env:{...process.env,PORT:'18078',CONFIG_PATH:'/tmp/dualstack/config.json',CAT_NODE_URL:''},stdio:'ignore'});
+try{let ready=false;for(let i=0;i<60;i++){try{ready=(await fetch('http://127.0.0.1:18078/api/health')).ok;}catch{}if(ready)break;await new Promise(r=>setTimeout(r,100));}assert.ok(ready);for(const host of ['127.0.0.1','[::1]']){const r=await fetch('http://'+host+':18078/api/health');assert.equal(r.status,200);assert.equal((await r.json()).ok,true);}console.log('PASS: deployed server accepts IPv4 and IPv6 with default HOST');}finally{child.kill();}

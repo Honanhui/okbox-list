@@ -1,4 +1,5 @@
 import {instrumentCat} from './cat-instrument.mjs';
+import {catDownloadError} from './cat-download-errors.mjs';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -10,7 +11,7 @@ async function download(value,limit){
  const original=new URL(value),auth=original.username?'Basic '+Buffer.from(decodeURIComponent(original.username)+':'+decodeURIComponent(original.password)).toString('base64'):'';
  original.username='';original.password='';let target=original;
  for(let hop=0;hop<5;hop++){
-  const response=await fetch(target,{headers:{'user-agent':'okhttp/4.12.0',...(auth&&target.origin===original.origin?{authorization:auth}:{})},redirect:'manual',signal:AbortSignal.timeout(20000)});
+ let response;try{response=await fetch(target,{headers:{'user-agent':'okhttp/4.12.0',...(auth&&target.origin===original.origin?{authorization:auth}:{})},redirect:'manual',signal:AbortSignal.timeout(20000)});}catch(error){throw new Error(catDownloadError(error));}
   if([301,302,303,307,308].includes(response.status)){const next=new URL(response.headers.get('location')||'',target);await response.body?.cancel();if(!['http:','https:'].includes(next.protocol)||next.username||next.password)throw new Error('订阅重定向无效');target=next;continue;}
   if(!response.ok)throw new Error('订阅下载 HTTP '+response.status);
   const chunks=[];let size=0;for await(const chunk of response.body){size+=chunk.length;if(size>limit)throw new Error('订阅文件过大');chunks.push(chunk);}return Buffer.concat(chunks);
@@ -36,6 +37,6 @@ const server=http.createServer(async(req,res)=>{try{
  const match=url.pathname.match(/^\/r\/([a-f0-9]{24})(\/.*)$/);if(!match){res.writeHead(404);res.end();return;}
  const runtime=await restore(match[1]);const headers={...req.headers,host:`127.0.0.1:${runtime.port}`};delete headers.authorization;
  const upstream=http.request({hostname:'127.0.0.1',port:runtime.port,path:match[2]+url.search,method:req.method,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res)});upstream.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end('Cat 服务连接失败')});req.pipe(upstream);
- }catch(error){if(!res.headersSent)res.writeHead(502,{'content-type':'application/json'});res.end(JSON.stringify({error:/fetch|URL|Invalid/i.test(error.message)?'Cat 订阅连接失败，请检查地址和认证信息':error.message}));}});
+ }catch(error){if(!res.headersSent)res.writeHead(502,{'content-type':'application/json'});res.end(JSON.stringify({error:catDownloadError(error)}));}});
 server.listen(port,process.env.HOST||'127.0.0.1');
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,async()=>{stopping=true;server.close();await Promise.all([...runtimes.values()].map(stop));process.exit(0)});

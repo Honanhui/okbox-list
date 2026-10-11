@@ -1,4 +1,5 @@
 import {isCatSetupSite} from './runtime/cat-source-policy.mjs';
+import {rewriteCatPosters} from './runtime/cat-posters.mjs';
 import http from "node:http";
 import https from "node:https";
 import dns from "node:dns/promises";
@@ -858,7 +859,11 @@ async function bridgeTvboxRuntimePlayer(req,request,site){
 async function bridgeTvboxSpider(req,request,site){
  if(!isDockerExecutableTvboxSite(site))throw createError(501,`源“${site.name}”尚未匹配 Cat Node 适配器`);
  if(request.action==='player')return bridgeTvboxRuntimePlayer(req,request,site);
- await syncCatAccounts(site.runtimeBase);return tvboxResult(await catNodeRequest(site,request,remoteFetch));
+ // Browsing does not require credentials. Account changes sync through the
+ // management API, and playback still waits for synchronization above.
+ const value=await catNodeRequest(site,request,remoteFetch);
+ return tvboxResult(rewriteCatPosters(value,site,url=>publicBaseUrl(req)+'/api/media?token='+
+   encodeURIComponent(mediaToken({url,siteId:site.key,headers:{}}))));
 }
 
 async function bridgeSpider(req, request) {
