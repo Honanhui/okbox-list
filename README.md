@@ -157,8 +157,6 @@ docker compose up -d
 
 停止使用 `docker compose down`。账号及订阅保存在 `okbox-list-data` 数据卷中，更新时保留该卷，不要使用 `docker compose down -v`。
 
-**发布状态：以上远程下载与自动拉取，需要先把配置文件上传到 GitHub，并把 `honamhui/okbox-list:0.1` 发布到 Docker Hub。本次已准备文件，尚未实际完成线上发布。**
-
 ## 方式二：一键安装与管理脚本
 
 与 alist-tvbox 相同：执行一个入口，打开交互菜单。
