@@ -1,5 +1,6 @@
 import {isCatSetupSite} from './runtime/cat-source-policy.mjs';
 import {rewriteCatPosters} from './runtime/cat-posters.mjs';
+import {isDj92Site,dj92Request} from './runtime/dj92-adapter.mjs';
 import http from "node:http";
 import https from "node:https";
 import dns from "node:dns/promises";
@@ -45,7 +46,7 @@ function catAccountStatus(account){
 function withCatAccountStatus(result){return {...result,accounts:(result.accounts||[]).map(account=>({...account,catSync:catAccountStatus(account)}))};}
 
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
-const VERSION = "0.1";
+const VERSION = "0.2";
 const TVBOX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 const TVBOX_ACCEPT = "application/json, text/plain, */*";
 const TVBOX_HEADERS = { accept: TVBOX_ACCEPT, "accept-language": "zh-CN,zh;q=0.9", "user-agent": TVBOX_USER_AGENT };
@@ -848,8 +849,8 @@ function getMediaToken(token) {
 }
 
 async function bridgeTvboxRuntimePlayer(req,request,site){
- await syncCatAccounts(site.runtimeBase);
- let value=await catNodeRequest(site,request,remoteFetch);
+ if(!isDj92Site(site))await syncCatAccounts(site.runtimeBase);
+ let value=isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);
  if(Number(value?.parse)||Number(value?.jx))value=await resolvePlayerPage(value,remoteFetch,normalizeHttpHeaders(value.header||value.headers));
  const url=String(value?.url||value?.streamUrl||'').trim();if(!/^https?:\/\//i.test(url))throw createError(502,'Cat Node 没有返回 HTTP 播放地址');
  const token=mediaToken({url,siteId:site.key,resourcePath:url,headers:normalizeHttpHeaders(value.header||value.headers),transform:value.mediaTransform});
@@ -861,7 +862,7 @@ async function bridgeTvboxSpider(req,request,site){
  if(request.action==='player')return bridgeTvboxRuntimePlayer(req,request,site);
  // Browsing does not require credentials. Account changes sync through the
  // management API, and playback still waits for synchronization above.
- const value=await catNodeRequest(site,request,remoteFetch);
+ const value=isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);
  return tvboxResult(rewriteCatPosters(value,site,url=>publicBaseUrl(req)+'/api/media?token='+
    encodeURIComponent(mediaToken({url,siteId:site.key,headers:{}}))));
 }

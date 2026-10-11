@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';import {dj92Request,isDj92Site,parseDj92List} from '../runtime/dj92-adapter.mjs';
+assert.equal(isDj92Site({runtime:'cat-node',api:'http://localhost/r/test/spider/musicailunhui/3'}),true);
+assert.equal(isDj92Site({runtime:'cat-node',api:'http://localhost/spider/other/3'}),false);
+assert.equal(parseDj92List('<a href="/dance/play/id/1.html">A &amp; B</a>')[0].vod_name,'A & B');
+const home=await dj92Request({action:'home'},fetch);assert.equal(home.class.length,3);assert.ok(home.list.length>0);
+const category=await dj92Request({action:'category',categoryId:'2',page:1},fetch);assert.ok(category.list.length>0);
+const found=await dj92Request({action:'search',keyword:'周杰伦',page:1},fetch);assert.ok(found.list.length>0);
+const detail=await dj92Request({action:'detail',id:home.list[0].vod_id},fetch);assert.ok(detail.list[0].vod_play_url.startsWith('试听$okbox-dj92:'));
+const played=await dj92Request({action:'player',id:home.list[0].vod_id},fetch);assert.match(played.url,/^https:\/\/mp4db\.dj92cc\.net\/m4a\/\d+\.m4a$/);
+const media=await fetch(played.url,{headers:{...played.header,Range:'bytes=0-1023'},signal:AbortSignal.timeout(15000)});assert.equal(media.status,206);assert.match(media.headers.get('content-type'),/audio/);assert.equal((await media.arrayBuffer()).byteLength,1024);
+await assert.rejects(()=>dj92Request({action:'player',id:'old-site-id'},fetch),/重新选择/);
+console.log(JSON.stringify({home:home.list.length,category:category.list.length,search:found.list.length,detail:true,previewStatus:media.status,previewBytes:1024}));

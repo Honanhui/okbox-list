@@ -46,24 +46,24 @@ public final class CloudAuthService {
         String payload;
         Session session;
         try {
-            JSONObject source = request("/alicloud2/generate_qr");
-            payload = source.optString("qr_code_url");
-            String providerSession = source.optString("session_id");
-            long expiresIn = source.optLong("expires_in", 0L);
-            if (!source.optBoolean("success") || payload.isEmpty() || providerSession.isEmpty() || expiresIn <= 0L) {
-                String message = source.optString("error");
-                if (message.isEmpty()) message = "授权服务没有返回有效二维码";
-                throw new IllegalStateException(message);
-            }
-            session = new Session(provider, name, false, providerSession, "", "",
-                    System.currentTimeMillis() + expiresIn * 1000L, new JSONObject());
-        } catch (Exception openListError) {
             JSONObject source = generateAliQr();
             payload = source.getString("payload");
             session = new Session(provider, name, true, "", source.optString("ck"), source.optString("t"),
                     System.currentTimeMillis() + source.optLong("expiresIn", 300L) * 1000L,
                     new JSONObject().put("cookies", source.optString("cookies")));
             queryAliQr(session);
+        } catch (Exception directError) {
+            JSONObject source = request("/alicloud2/generate_qr");
+            payload = source.optString("qr_code_url");
+            String providerSession = source.optString("session_id");
+            long expiresIn = source.optLong("expires_in", 0L);
+            if (!source.optBoolean("success") || payload.isEmpty() || providerSession.isEmpty() || expiresIn <= 0L) {
+                String message = source.optString("error");
+                if (message.isEmpty()) message = readable(directError, "授权服务没有返回有效二维码");
+                throw new IllegalStateException(message);
+            }
+            session = new Session(provider, name, false, providerSession, "", "",
+                    System.currentTimeMillis() + expiresIn * 1000L, new JSONObject());
         }
         String id = UUID.randomUUID().toString();
         SESSIONS.put(id, session);
