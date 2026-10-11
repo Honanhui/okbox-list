@@ -1,5 +1,7 @@
 import {fileURLToPath} from 'node:url';
+import {patchCatSiteDiagnostics} from './cat-site-diagnostics.mjs';
 export function instrumentCat(source){
+ source=patchCatSiteDiagnostics(source).source;
  const pattern=/([A-Za-z_$][\w$]*)\.get\(["']\/website\/api\/credentials["'],async\(\)=>[A-Za-z_$][\w$]*\(\1\)\)/g;
  const matches=[...source.matchAll(pattern)];if(matches.length!==1)return {source,enabled:false};
  const thunder=source.match(/(?:var |,)([A-Za-z_$][\w$]*)=\{id:"thunder",name:/)?.[1];
