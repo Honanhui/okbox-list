@@ -6,3 +6,6 @@ node_modules
 **/node_modules
 **/.git
 vendor/tvspider/nodejs/package-lock.json
+vendor
+assets
+PATCH-NOTES-*

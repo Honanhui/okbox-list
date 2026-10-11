@@ -11,8 +11,10 @@ RUN apk add --no-cache openjdk17-jre ffmpeg
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY server.js ./
-COPY public ./public
-COPY runtime ./runtime
+COPY public/index.html ./public/index.html
+COPY runtime/*.mjs ./runtime/
+COPY runtime/cloud/src ./runtime/cloud/src
+COPY runtime/cloud/lib ./runtime/cloud/lib
 COPY config/config.example.json ./config/config.example.json
 COPY THIRD-PARTY-LICENSES ./THIRD-PARTY-LICENSES
 COPY THIRD-PARTY.md ./THIRD-PARTY.md

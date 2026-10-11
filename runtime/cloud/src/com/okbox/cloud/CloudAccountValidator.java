@@ -34,7 +34,9 @@ public final class CloudAccountValidator {
                 case "bilibili" -> validateBilibili(secret);
                 default -> validateRequired(secret, provider);
             };
-            return CloudAccountStore.setValidation(id, "valid", message);
+            boolean checkedOnline = "aliyun".equals(provider) || "pan123".equals(provider)
+                    || "thunder".equals(provider) || "bilibili".equals(provider);
+            return CloudAccountStore.setValidation(id, checkedOnline ? "valid" : "deferred", message);
         } catch (VerificationRequiredException error) {
             return CloudAccountStore.setVerification(id, error.getMessage(), error.url);
         } catch (Exception error) {

@@ -32,5 +32,7 @@ try{
  assert.equal((await call({action:'save',url:'http://example.com/config.json'})).status,400);
  for(const name of ['one','two']){assert.equal((await call({action:'save',id:name,name,url:url(name)})).status,200);for(let i=0;i<80;i++){const item=(await call()).data.sources.find(x=>x.id===name);if(item?.state==='ready')break;if(item?.error)throw Error(item.error);await new Promise(resolve=>setTimeout(resolve,100));}}
  for(const id of ['two','one']){assert.equal((await call({action:'select',id})).status,200);const sources=await (await fetch(bridgeBase+'/api/sources')).json();assert.equal(sources.sites.length,1);assert.equal(sources.sites[0].name,id);}
+ assert.equal((await fetch(bridgeBase+'/sub/all.json')).status,400);
+ const warehouse=await (await fetch(bridgeBase+'/sub/one.json')).json();assert.equal(warehouse.sites.length,1);assert.equal(warehouse.sites[0].name,'one');
  console.log('PASS: arbitrary Cat URLs, Basic authentication, checksum, independent catalogues, switching, JSON rejection, empty installation, management API, version 0.1');
 }finally{if(bridge){bridge.kill('SIGTERM');await new Promise(resolve=>bridge.once('exit',resolve));}child.kill('SIGTERM');await new Promise(resolve=>child.once('exit',resolve));await new Promise(resolve=>upstream.close(resolve));}

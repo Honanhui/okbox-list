@@ -44,31 +44,10 @@ function catAccountStatus(account){
 function withCatAccountStatus(result){return {...result,accounts:(result.accounts||[]).map(account=>({...account,catSync:catAccountStatus(account)}))};}
 
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
-const VIDEO_EXTENSIONS = new Set(["mp4", "mkv", "mov", "avi", "wmv", "flv", "ts", "m2ts", "webm", "m4v", "iso"]);
-const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 const VERSION = "0.1";
-// Opt-in diagnostic source. It proves the Docker -> OKBOX TVBox protocol and
-// media proxy path without treating an Android-only Spider as executable.
-// Keep it disabled for normal subscriptions so it never appears as content.
-
-const DEMO_SOURCE_KEY = "docker:playback-test";
-
 const TVBOX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 const TVBOX_ACCEPT = "application/json, text/plain, */*";
 const TVBOX_HEADERS = { accept: TVBOX_ACCEPT, "accept-language": "zh-CN,zh;q=0.9", "user-agent": TVBOX_USER_AGENT };
-// Some public TVBox lines deliberately return a landing page to browsers but
-// expose the configuration to the OkHttp client used by TVBoxOS/FongMi.
-// Retrying only after an HTML response keeps normal source requests unchanged.
-const TVBOX_CONFIG_USER_AGENTS = [TVBOX_USER_AGENT, "okhttp/3.12.0"];
-// Android DEX archives are converted to ordinary JVM bytecode inside this
-// container. The runner supplies a small compatibility surface for the
-// Android/CatVod classes commonly used by TVBox spiders; it is not an Android
-// Bridge process and does not require a second server.
-
-// Enabled only by docker-compose.android.yml. The gateway reaches a FongMi
-// Bridge running in an Android guest, which preserves Android JNI for
-// protected DEX spiders such as FTY.
-
 const startedAt = Date.now();
 const logs = [];
 const mediaTokens = new Map();
@@ -643,7 +622,7 @@ async function loadCatalogCache() {
   try {
     const value = JSON.parse(await fs.readFile(CATALOG_CACHE_PATH, "utf8"));
     for (const [id, item] of Object.entries(value || {})) {
-      if (item?.url && Array.isArray(item.sites)) catalogCache.set(String(id), item);
+      if (isCatNodeSubscription(item?.url) && Array.isArray(item.sites)) catalogCache.set(String(id), {...item, sites:item.sites.filter(site=>site.runtime==='cat-node' && site.runtimeBase)});
     }
   } catch (error) {
     if (error?.code !== "ENOENT") log("解析缓存读取失败", { message: error.message });
@@ -662,7 +641,7 @@ function restoreCatalogCache() {
   for (const item of config.configUrls) {
     const cached = catalogCache.get(item.id);
     if (item.enabled && cached?.url === item.url && cached.sites?.length) {
-      restored.push(...cached.sites.map((site) => ({ ...site, runtime:site.runtime==='cat-node'?'cat-node':runtimeForTvboxSite(site), configName: item.name })));
+      restored.push(...cached.sites.map((site) => ({ ...site, configName: item.name })));
       configMetadata.set(item.id, cached.metadata || { parses: [], lives: [], rules: [] });
       statuses.push({ id: item.id, name: item.name, url: item.url, enabled: true, state: "stale", message: `使用上次成功缓存（${cached.sites.length} 个源），正在刷新`, sourceCount: cached.sites.length, cachedAt: cached.savedAt || null, fetchedAt: null });
     } else {
@@ -686,230 +665,9 @@ function publicBaseUrl(req) {
   return `${protocol}://${req.headers.host || `localhost:${PORT}`}`;
 }
 
-function runtimeForTvboxSite(site){return [0,1,4].includes(Number(site.type))&&/^https?:\/\//i.test(site.api||'')?'http':'unsupported';}
+function isDockerExecutableTvboxSite(site){return site.runtime==='cat-node' && catNodeEnabled();}
 
-/**
- * The generated subscription must only expose sources that this container can
- * actually execute.  A TVBox configuration can list an Android-only csp_*
- * Spider, but presenting it as a type-1 Docker endpoint merely postpones a
- * DEX failure until the user opens it in OKBOX.
- *
- * JS is deliberately not enabled here yet.  The current bundled executor is
- * for classic rule/spider scripts; the FTY JS entries are drpy ES modules
- * (`import assets://...`) and need a module-compatible runtime first.
- */
-function isDockerExecutableTvboxSite(site){return site.runtime==='http'||site.runtime==='cat-node'&&catNodeEnabled();}
-
-// `csp_Jianpian` and FTY's `csp_JPJGuard` have the same portable protocol.
-// The upstream DEX merely wraps these JSON endpoints and formats the result
-// as a TVBox response. Keeping this adapter in Node means the container has
-// no Android/Bridge dependency and can expose the source as a normal /vod API.
-
-function stripJsonComments(data) {
-  const result = [];
-  let inString = false;
-  let escaped = false;
-  let lineComment = false;
-  let blockComment = false;
-  for (let index = 0; index < data.length; index++) {
-    const current = data[index];
-    const next = data[index + 1] || "";
-    if (lineComment) {
-      if (current === "\n" || current === "\r") {
-        lineComment = false;
-        result.push(current);
-      }
-      continue;
-    }
-    if (blockComment) {
-      if (current === "*" && next === "/") {
-        blockComment = false;
-        index++;
-      } else if (current === "\n" || current === "\r") {
-        result.push(current);
-      }
-      continue;
-    }
-    if (inString) {
-      result.push(current);
-      if (escaped) escaped = false;
-      else if (current === "\\") escaped = true;
-      else if (current === '"') inString = false;
-      continue;
-    }
-    if (current === '"') {
-      inString = true;
-      result.push(current);
-    } else if (current === "/" && next === "/") {
-      lineComment = true;
-      index++;
-    } else if (current === "/" && next === "*") {
-      blockComment = true;
-      index++;
-    } else {
-      result.push(current);
-    }
-  }
-  if (blockComment) throw createError(502, "配置包含未闭合的块注释");
-  return result.join("");
-}
-
-function parseJsonLike(data) {
-  const value = JSON.parse(stripJsonComments(String(data || "").replace(/^\uFEFF/, "").trim()));
-  return typeof value === "string" ? parseJsonLike(value) : value;
-}
-
-function padCryptoKey(value) {
-  return Buffer.from(`${String(value || "")}0000000000000000`.slice(0, 16), "utf8");
-}
-
-function decodeAesCbcConfig(data) {
-  const compact = String(data || "").replace(/\s+/g, "");
-  if (!/^2423[0-9a-f]+$/i.test(compact) || compact.length < 60 || compact.length % 2 !== 0) return data;
-  const decoded = Buffer.from(compact, "hex").toString("utf8").toLowerCase();
-  const keyStart = decoded.indexOf("$#");
-  const keyEnd = decoded.indexOf("#$");
-  if (keyStart < 0 || keyEnd <= keyStart || decoded.length < 13) return data;
-  const key = padCryptoKey(decoded.slice(keyStart + 2, keyEnd));
-  const iv = padCryptoKey(decoded.slice(-13));
-  const payloadStart = compact.indexOf("2324") + 4;
-  const payloadEnd = compact.length - 26;
-  if (payloadStart < 4 || payloadEnd <= payloadStart || (payloadEnd - payloadStart) % 2 !== 0) return data;
-  try {
-    const decipher = crypto.createDecipheriv("aes-128-cbc", key, iv);
-    return Buffer.concat([decipher.update(Buffer.from(compact.slice(payloadStart, payloadEnd), "hex")), decipher.final()]).toString("utf8");
-  } catch {
-    return data;
-  }
-}
-
-function decodeMarkedBase64(data) {
-  const matcher = String(data || "").match(/[A-Za-z0-9]{8}\*\*/);
-  if (!matcher) return data;
-  const encoded = String(data).slice(String(data).indexOf(matcher[0]) + 10).trim();
-  if (!encoded) return data;
-  try { return Buffer.from(encoded, "base64").toString("utf8"); } catch { return data; }
-}
-
-function decodeConfigPayload(raw) {
-  let textValue = String(raw || "").replace(/^\uFEFF/, "").trim();
-  if (!textValue) throw createError(502, "TVBox 配置响应为空");
-  try { return parseJsonLike(textValue); } catch {}
-
-  // Same markers as FongMi Decoder.verify(): eight alphanumeric characters
-  // followed by ** means that the remainder is Base64 encoded.
-  if (textValue.includes("**")) {
-    const marked = decodeMarkedBase64(textValue);
-    if (marked !== textValue) textValue = marked.trim();
-  }
-  if (textValue.startsWith("2423")) textValue = decodeAesCbcConfig(textValue).trim();
-  try { return parseJsonLike(textValue); } catch {}
-  try {
-    const decodedText = decodeURIComponent(textValue);
-    if (decodedText !== textValue) textValue = decodedText.trim();
-  } catch {}
-  try { return parseJsonLike(textValue); } catch {}
-  try {
-    const wrapped = textValue.match(/^base64\((.*)\)$/is)?.[1] || textValue.replace(/^base64:\/\//i, "");
-    const decodedText = Buffer.from(wrapped, "base64").toString("utf8").replace(/^\uFEFF/, "").trim();
-    return parseJsonLike(decodedText);
-  } catch {
-    throw createError(502, "TVBox 配置不是有效 JSON、Base64 JSON 或 FongMi 加密配置");
-  }
-}
-
-function resolveConfigRelativeValues(value, baseUrl, key = "") {
-  if (Array.isArray(value)) return value.map((item) => resolveConfigRelativeValues(item, baseUrl, key));
-  if (!value || typeof value !== "object") {
-    if (typeof value !== "string") return value;
-    const textValue = value.trim();
-    if (!/^(\.\.\/|\.\/)/.test(textValue)) return value;
-    try { return new URL(textValue, baseUrl).toString(); } catch { return value; }
-  }
-  return Object.fromEntries(Object.entries(value).map(([name, item]) => [name, resolveConfigRelativeValues(item, baseUrl, name)]));
-}
-
-function isHtmlPage(raw) {
-  const sample = String(raw || "").slice(0, 4000).toLowerCase();
-  return /<!doctype html|<html[\s>]|<head[\s>]|<body[\s>]/.test(sample);
-}
-
-function isHtmlChallenge(raw) {
-  const sample = String(raw || "").slice(0, 4000).toLowerCase();
-  return /360-analysis-id|challenge-platform|captcha|verify you are human|security verification/.test(sample);
-}
-
-function landingConfigCandidates(configUrl, raw) {
-  const result = [];
-  let base;
-  try { base = new URL(configUrl); } catch { return result; }
-  const sample = String(raw || "");
-  const isRoot = base.pathname === "/" || base.pathname === "";
-  if (isRoot && /fongmi|影视app|使用教程/i.test(sample)) {
-    for (const suffix of ["/pg/jsm.json", "/zx/FongMi.json"]) result.push(new URL(suffix, base).toString());
-  }
-  const linkPattern = /(?:href|src)\s*=\s*["']([^"']+\.json(?:\?[^"']*)?)["']/ig;
-  for (const match of sample.matchAll(linkPattern)) {
-    try { result.push(new URL(match[1], base).toString()); } catch {}
-  }
-  return [...new Set(result)].filter((candidate) => candidate !== configUrl);
-}
-
-function describeFetchError(error, label = "请求失败") {
-  if (error?.name === "TimeoutError" || error?.name === "AbortError") return `${label}：连接超时（15 秒）`;
-  const cause = error?.cause;
-  const code = cause?.code ? ` ${cause.code}` : "";
-  const detail = cause?.message || error?.message || "未知网络错误";
-  return `${label}${code}：${detail}`;
-}
-
-async function fetchRemoteText(url, timeoutMs = 15000) {
-  let response;
-  try {
-    response = await remoteFetch(url, { redirect: "follow", signal: AbortSignal.timeout(timeoutMs), headers: TVBOX_HEADERS });
-  } catch (error) {
-    throw createError(502, describeFetchError(error, "Spider 下载失败"));
-  }
-  const textValue = await response.text();
-  if (!response.ok) throw createError(502, `Spider 返回 HTTP ${response.status}`);
-  return { text: textValue, finalUrl: response.url || url };
-}
-
-function configSites(root) {
-  if (Array.isArray(root)) return root;
-  if (Array.isArray(root?.sites)) return root.sites;
-  if (Array.isArray(root?.data?.sites)) return root.data.sites;
-  if (Array.isArray(root?.config?.sites)) return root.config.sites;
-  throw createError(502, "TVBox 配置中没有 sites 数组");
-}
-
-function configDepotUrls(root, baseUrl) {
-  if (!Array.isArray(root?.urls)) return [];
-  return root.urls.map((item) => typeof item === "string" ? item : item?.url).filter(Boolean).map((item) => {
-    try { return new URL(String(item), baseUrl).toString(); } catch { return ""; }
-  }).filter(Boolean);
-}
-
-function configUrlCandidates(configUrl) {
-  const result = [configUrl];
-  try {
-    const parsed = new URL(configUrl);
-    // OK321 has historically exposed the same public line as /tv and /ok.
-    // Keep the user-entered address first, then try the known compatibility
-    // path when an old bookmark is no longer published.
-    if (parsed.hostname.toLowerCase() === "ok321.top" && parsed.pathname.toLowerCase() === "/ok") {
-      const fallback = new URL(parsed);
-      fallback.pathname = "/tv";
-      result.push(fallback.toString());
-    }
-  } catch {}
-  if (result.some((item) => /^http:\/\//i.test(item))) {
-    result.push(...result.filter((item) => /^http:\/\//i.test(item)).map((item) => item.replace(/^http:\/\//i, "https://")));
-  }
-  return [...new Set(result)];
-}
-
-async function fetchConfigUrl(configUrl, depth = 0, signal) {
+async function fetchConfigUrl(configUrl, signal) {
  if(!isCatNodeSubscription(configUrl))throw createError(400,'只支持 Cat Node .js 或 .js.md5 订阅，不支持 JSON 订阅');
  if(!catNodeEnabled())throw createError(503,'Cat Node 服务未启用');
  return {sites:await catNodeCatalog(remoteFetch,signal,configUrl),metadata:{parses:[],lives:[],rules:[]},status:200,finalUrl:configUrl,contentType:'application/javascript'};
@@ -942,7 +700,7 @@ async function refreshTvboxCatalog(onlyId = "", signal) {
     const status = statuses.find((item) => item.id === configItem.id);
     if (!configItem.enabled) continue;
     try {
-      const result = await fetchConfigUrl(configItem.url, 0, signal);
+      const result = await fetchConfigUrl(configItem.url, signal);
       if(signal?.aborted) return publicConfig();
       const sites = result.sites;
       configMetadata.set(configItem.id, result.metadata || { parses: [], lives: [], rules: [] });
@@ -1040,31 +798,6 @@ function tvboxResult(value) {
   return value;
 }
 
-function tvboxXmlText(value) {
-  return String(value || "").replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-}
-
-function tvboxXmlTag(block, name) {
-  return tvboxXmlText(String(block || "").match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i"))?.[1] || "");
-}
-
-function parseTvboxXml(raw) {
-  const list = [...String(raw || "").matchAll(/<video\b[\s\S]*?<\/video>/gi)].map((match) => {
-    const block = match[0];
-    const item = {};
-    for (const field of ["id", "name", "pic", "type_id", "type_name", "remarks", "year", "content", "play_from", "play_url"]) {
-      const value = tvboxXmlTag(block, field);
-      if (value) item[field === "id" ? "vod_id" : field === "name" ? "vod_name" : field === "pic" ? "vod_pic" : field === "type_id" ? "type_id" : field === "type_name" ? "type_name" : field === "remarks" ? "vod_remarks" : field === "year" ? "vod_year" : field === "content" ? "vod_content" : field === "play_from" ? "vod_play_from" : "vod_play_url"] = value;
-    }
-    return item;
-  });
-  const classes = [...String(raw || "").matchAll(/<class\b[\s\S]*?<\/class>/gi)].map((match) => ({
-    type_id: tvboxXmlTag(match[0], "ty_id"),
-    type_name: tvboxXmlTag(match[0], "ty_name")
-  })).filter((item) => item.type_id || item.type_name);
-  return { code: 1, msg: "", page: 1, pagecount: 1, limit: 100, total: list.length, list, class: classes };
-}
-
 function normalizeHttpHeaders(value) {
   if (value && typeof value === "object") return value;
   const textValue = String(value || "").trim();
@@ -1077,89 +810,6 @@ function normalizeHttpHeaders(value) {
     const index = item.indexOf("=");
     return index > 0 ? [item.slice(0, index).trim(), item.slice(index + 1).trim()] : [item, ""];
   }));
-}
-
-async function tvboxHttpRequest(site, request) {
-  const endpoint = new URL(site.api);
-  const action = String(request.action || "home");
-  const params = new URLSearchParams();
-  let siteExt = typeof site.ext === "string" ? site.ext : site.ext && typeof site.ext === "object" ? JSON.stringify(site.ext) : "";
-  if (/^https?:\/\//i.test(siteExt)) {
-    const extResponse = await fetchRemoteText(siteExt, Math.max(5000, site.timeout * 1000));
-    siteExt = extResponse.text.trim();
-  }
-  if (siteExt) params.set("extend", siteExt);
-  if (action === "category") {
-    params.set("ac", Number(site.type) === 4 ? "videolist" : "videolist");
-    params.set("t", String(request.categoryId || ""));
-    params.set("pg", String(request.page || 1));
-    const filter = request.filter && typeof request.filter === "object" ? request.filter : request.extend && typeof request.extend === "object" ? request.extend : {};
-    if (Number(site.type) === 1 && Object.keys(filter).length) params.set("f", JSON.stringify(filter));
-    if (Number(site.type) === 4) params.set("ext", Buffer.from(JSON.stringify(filter)).toString("base64url"));
-  }
-  if (action === "search") {
-    params.set("wd", String(request.keyword || ""));
-    params.set("quick", String(request.quick !== false));
-    if (!siteExt) params.set("extend", "");
-    if (Number(request.page || 1) > 1) params.set("pg", String(request.page || 1));
-  }
-  if (action === "detail") { params.set("ac", "detail"); params.set("ids", String(request.id || "")); }
-  const headers = { ...TVBOX_HEADERS, ...normalizeHttpHeaders(site.headers), ...normalizeHttpHeaders(site.header) };
-  const encodedParams = params.toString();
-  const requestUrl = new URL(endpoint);
-  let fetchOptions = { redirect: "follow", signal: AbortSignal.timeout(Math.max(5000, site.timeout * 1000)), headers };
-  if (encodedParams.length <= 1000) {
-    for (const [key, value] of params) requestUrl.searchParams.set(key, value);
-  } else {
-    fetchOptions = { ...fetchOptions, method: "POST", body: encodedParams, headers: { ...headers, "content-type": "application/x-www-form-urlencoded" } };
-  }
-  const response = await remoteFetch(requestUrl, fetchOptions);
-  const raw = await response.text();
-  if (!response.ok) throw createError(502, `TVBox HTTP 源返回 HTTP ${response.status}`);
-  let value;
-  try {
-    value = Number(site.type) === 0 ? parseTvboxXml(raw) : decodeConfigPayload(raw);
-  } catch {
-    throw createError(502, Number(site.type) === 0 ? "TVBox XML 源返回格式无法识别" : "TVBox HTTP 源返回的不是 JSON、Base64 JSON 或加密 JSON");
-  }
-  return tvboxResult(value);
-}
-
-function playerUrlFromResult(value) {
-  let url = typeof value?.url === "string" ? value.url.trim() : "";
-  if (url.startsWith("[")) {
-    try {
-      const alternatives = JSON.parse(url);
-      url = Array.isArray(alternatives) ? String(alternatives.find((item) => typeof item === "string" && item.trim()) || "").trim() : url;
-    } catch {}
-  }
-  if (url.startsWith("video://")) url = url.slice("video://".length);
-  return url;
-}
-
-async function tvboxHttpPlayerRequest(site, request) {
-  const endpoint = new URL(site.api);
-  let siteExt = typeof site.ext === "string" ? site.ext : site.ext && typeof site.ext === "object" ? JSON.stringify(site.ext) : "";
-  if (/^https?:\/\//i.test(siteExt)) {
-    const extResponse = await fetchRemoteText(siteExt, Math.max(5000, site.timeout * 1000));
-    siteExt = extResponse.text.trim();
-  }
-  const params = new URLSearchParams({ play: String(request.id || ""), flag: String(request.flag || "") });
-  if (siteExt) params.set("extend", siteExt);
-  const headers = { ...TVBOX_HEADERS, ...normalizeHttpHeaders(site.headers), ...normalizeHttpHeaders(site.header) };
-  for (const [key, value] of params) endpoint.searchParams.set(key, value);
-  const response = await remoteFetch(endpoint, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(Math.max(5000, site.timeout * 1000)),
-    headers
-  });
-  const raw = await response.text();
-  if (!response.ok) throw createError(502, `TVBox HTTP 播放接口返回 HTTP ${response.status}`);
-  let result;
-  try { result = decodeConfigPayload(raw); }
-  catch { throw createError(502, "TVBox HTTP 播放接口没有返回 JSON、Base64 JSON 或加密 JSON"); }
-  if (!result || typeof result !== "object") throw createError(502, "TVBox HTTP 播放接口返回了无效数据");
-  return result;
 }
 
 function bridgeSource(site) {
@@ -1180,10 +830,6 @@ function bridgeSource(site) {
   };
 }
 
-function bridgeResult(list = [], extra = {}) {
-  return { code: 1, msg: "", page: 1, pagecount: 1, limit: 100, total: list.length, ...extra, list };
-}
-
 function mediaToken(entry) {
   const token = crypto.randomBytes(18).toString("base64url");
   mediaTokens.set(token, { ...entry, expiresAt: Date.now() + 30 * 60 * 1000 });
@@ -1200,16 +846,6 @@ function getMediaToken(token) {
   return entry;
 }
 
-async function bridgeTvboxPlayer(req, request) {
-  const site = tvboxSite(request.siteKey);
-  const value = String(request.id || "").trim();
-  if (!/^https?:\/\//i.test(value)) {
-    throw createError(501, `源“${site.name}”的 ${site.runtime} 播放器尚未接入 Docker 运行时`);
-  }
-  const token = mediaToken({ url: value, siteId: site.key, resourcePath: value, headers: {} });
-  return { parse: 0, jx: 0, url: "", streamUrl: `${publicBaseUrl(req)}/api/media?token=${encodeURIComponent(token)}` };
-}
-
 async function bridgeTvboxRuntimePlayer(req,request,site){
  await syncCatAccounts(site.runtimeBase);
  let value=await catNodeRequest(site,request,remoteFetch);
@@ -1219,23 +855,10 @@ async function bridgeTvboxRuntimePlayer(req,request,site){
  const {mediaTransform,...result}=value;return {...result,parse:0,jx:0,url:'',streamUrl:publicBaseUrl(req)+'/api/media?token='+encodeURIComponent(token)};
 }
 
-async function bridgeTvboxHttpPlayer(req, request, site) {
-  // Type 0/1 sources expose a direct episode URL. Type 4 is different: its
-  // HTTP endpoint receives play/flag and returns the final player result.
-  if (Number(site.type) !== 4) return bridgeTvboxPlayer(req, request);
-  const result = await tvboxHttpPlayerRequest(site, request);
-  const directUrl = playerUrlFromResult(result);
-  if (!/^https?:\/\//i.test(directUrl)) return result;
-  const headers = normalizeHttpHeaders(result.header || result.headers);
-  const token = mediaToken({ url: directUrl, siteId: site.key, resourcePath: directUrl, headers });
-  return { ...result, parse: 0, jx: 0, url: "", streamUrl: `${publicBaseUrl(req)}/api/media?token=${encodeURIComponent(token)}` };
-}
-
 async function bridgeTvboxSpider(req,request,site){
  if(!isDockerExecutableTvboxSite(site))throw createError(501,`源“${site.name}”尚未匹配 Cat Node 适配器`);
- if(request.action==='player')return site.runtime==='cat-node'?bridgeTvboxRuntimePlayer(req,request,site):bridgeTvboxHttpPlayer(req,request,site);
- if(site.runtime==='cat-node'){await syncCatAccounts(site.runtimeBase);return tvboxResult(await catNodeRequest(site,request,remoteFetch));}
- return tvboxHttpRequest(site,request);
+ if(request.action==='player')return bridgeTvboxRuntimePlayer(req,request,site);
+ await syncCatAccounts(site.runtimeBase);return tvboxResult(await catNodeRequest(site,request,remoteFetch));
 }
 
 async function bridgeSpider(req, request) {
@@ -1307,13 +930,9 @@ function subscriptionConfig(req, requestedId) {
   // server-owned subscription generated for exactly one remote config URL.
   const ids = config.configUrls.map((item) => item.id);
   const selectedId = !requestedId ? config.activeId : requestedId === "0" && !ids.includes("0") ? ids[0] : requestedId;
-  const allConfigs = selectedId === "all";
-  const activeSites = tvboxSites.filter((site) => !isCatSetupSite(site) && (allConfigs || site.configId === selectedId));
-  const metadata = allConfigs ? [...configMetadata.values()].reduce((result, item) => ({
-    parses: result.parses.concat(item?.parses || []),
-    lives: result.lives.concat(item?.lives || []),
-    rules: result.rules.concat(item?.rules || [])
-  }), { parses: [], lives: [], rules: [] }) : (configMetadata.get(selectedId) || { parses: [], lives: [], rules: [] });
+  if (selectedId === "all") throw createError(400, "请使用多仓入口选择独立订阅，不支持合并全部仓库");
+  const activeSites = tvboxSites.filter((site) => !isCatSetupSite(site) && site.configId === selectedId);
+  const metadata = configMetadata.get(selectedId) || { parses: [], lives: [], rules: [] };
   const base = publicBaseUrl(req);
   const sites = activeSites.map((site) => ({
     key: site.key,
@@ -1322,9 +941,7 @@ function subscriptionConfig(req, requestedId) {
     // call our HTTP endpoint instead of downloading the original Spider.
     type: 1,
     api: `${base}/vod?site=${encodeURIComponent(site.key)}`,
-    // `dockerExecutable` is read by OKBOX.  Other TVBox clients simply
-    // ignore it, while OKBOX keeps Android-only DEX entries out of its media
-    // library instead of opening an endpoint guaranteed to fail.
+    // OKBOX uses this flag to exclude incompatible cached sites.
     dockerExecutable: isDockerExecutableTvboxSite(site),
     searchable: isDockerExecutableTvboxSite(site) && site.searchable ? 1 : 0,
     quickSearch: isDockerExecutableTvboxSite(site) && site.searchable ? 1 : 0,
@@ -1347,7 +964,7 @@ function subscriptionConfig(req, requestedId) {
 async function tvboxVodResponse(req, url) {
   const site = tvboxSite(url.searchParams.get("site"));
   if (!isDockerExecutableTvboxSite(site)) {
-    throw createError(409, `源“${site.name}”依赖 Android DEX 或未兼容的模块 Spider，未加入 Docker 媒体库；请刷新 OKBOX 的媒体库`);
+    throw createError(409, `源“${site.name}”不是当前可执行的 Cat Node 站点，请刷新订阅`);
   }
   const ids = String(url.searchParams.get("ids") || "").trim();
   const keyword = String(url.searchParams.get("wd") || "").trim();

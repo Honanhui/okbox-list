@@ -1,0 +1,7 @@
+# 源码构建覆盖文件：与 docker-compose.yml 一起使用。
+services:
+  okbox-list:
+    build:
+      context: .
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}

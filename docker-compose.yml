@@ -1,20 +1,26 @@
+name: okbox-list
+
 services:
-  tvbox-list:
-    build:
-      context: .
-      args:
-        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
-    image: honamhui/okbox-list:0.1
+  okbox-list:
+    # 单镜像包含后台、Cat Node 爬虫及网盘登录服务。
+    image: ${OKBOX_IMAGE:-honamhui/okbox-list:0.1}
     container_name: okbox-list
     restart: unless-stopped
     ports:
-      - "9978:9978"
+      - "${OKBOX_PORT:-9978}:9978"
     environment:
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-Asia/Shanghai}
+      NODE_ENV: production
       HOST: "::"
       PORT: "9978"
       CONFIG_PATH: /data/config.json
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      PUBLIC_BASE_URL: ${OKBOX_PUBLIC_BASE_URL:-}
+      ADMIN_TOKEN: ${OKBOX_ADMIN_TOKEN:-}
     volumes:
-      - ./data:/data
+      - okbox_list_data:/data
     stop_grace_period: 15s
+
+volumes:
+  okbox_list_data:
+    # 固定卷名，可与一键安装和 docker run 共用。
+    name: ${OKBOX_DATA_VOLUME:-okbox-list-data}

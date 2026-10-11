@@ -67,7 +67,7 @@ Basic 认证地址中的凭据会转换为请求头；跨域跳转不会自动�
 | 夸克、UC、115、123、百度 | 二维码；手动凭据 |
 | 移动云盘、迅雷云盘、光鸭 | 二维码；手动凭据 |
 | B 站 | 二维码；手动凭据 |
-| 天翼云盘、PikPak | 账号密码；备用凭据按后台字段填写 |
+| 天翼云盘、PikPak | 保存账号密码；天翼由已适配 Cat 驱动登录，PikPak 尚无 Cat 同步接口 |
 
 登录成功、同步成功和播放成功是三个不同步骤。各订阅驱动实现不同，不能保证任意订阅都能使用全部账号。后台显示同步失败、接口未适配或等待播放验证等状态。
 
@@ -94,55 +94,19 @@ Basic 认证地址中的凭据会转换为请求头；跨域跳转不会自动�
 
 域名需包含协议和端口，例如 `http://tvbox.example.com:9978`。配置 HTTPS 反向代理后可使用对应 HTTPS 地址。域名解析不会自动开放防火墙或配置端口转发。
 
-## DOCKER 启动
+## Docker 启动
 
-解压源码包，进入含 Dockerfile 的目录：
+### 前后端集成版
 
-```bash
-docker build -t honamhui/okbox-list:0.1 .
-```
+镜像已经集成 Web 管理页面、后台 API、Cat Node 爬虫和网盘登录服务，部署时只需要启动一个容器。
 
-跨架构构建 amd64 镜像：
+#### 使用 Docker Compose（推荐）
 
-```bash
-docker buildx build --platform linux/amd64 --pull=false -t honamhui/okbox-list:0.1 --load .
-```
-
-`--pull=false` 不保证离线，基础镜像元数据和 Alpine 软件包仍可能需要网络。
-
-直接创建单个容器：
-
-```bash
-docker run -d \
-  --name okbox-list \
-  --restart unless-stopped \
-  -p 9978:9978 \
-  -e TZ=Asia/Shanghai \
-  -v okbox-list-data:/data \
-  honamhui/okbox-list:0.1
-```
-
-镜像标签是本地构建名称，本说明不代表该镜像已发布到 Docker Hub。首次部署先构建，或加载已有的同名镜像包。
-
-### 使用 Docker Compose（推荐）
-
-仓库中的 `docker-compose.yml` 同时包含构建与启动配置。进入项目目录执行：
-
-```bash
-docker compose up -d --build
-docker compose ps
-docker compose logs -f
-```
-
-`docker-compose.yml`：
+新建 `docker-compose.yml`，写入以下内容：
 
 ```yaml
 services:
-  tvbox-list:
-    build:
-      context: .
-      args:
-        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+  okbox-list:
     image: honamhui/okbox-list:0.1
     container_name: okbox-list
     restart: unless-stopped
@@ -153,25 +117,83 @@ services:
       HOST: "::"
       PORT: "9978"
       CONFIG_PATH: /data/config.json
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     volumes:
-      - ./data:/data
-    stop_grace_period: 15s
+      - okbox_list_data:/data
+
+volumes:
+  okbox_list_data:
+    name: okbox-list-data
 ```
 
-必须在含部署文件的目录执行，或指定完整路径：
+然后启动服务：
 
 ```bash
-docker compose -f /完整路径/docker-compose.yml up -d --build
+docker compose up -d
 ```
 
-Compose 在 Docker Desktop 显示项目分组，实际只有一个容器。不需要分组可用前面的 `docker run`。
+也可以直接下载项目提供的完整配置文件，不需要下载整个项目，也不需要准备 `.env`：
 
-### 更新与备份
+```bash
+# 下载配置文件
+curl -fL -o docker-compose.yml https://raw.githubusercontent.com/Honanhui/okbox-list/main/docker-compose.yml
 
-更新源码后在原目录执行 `docker compose up -d --build`，继续使用原来的 `./data`。停止用 `docker compose down`，不要删除数据目录。
+# 启动服务（本机没有镜像时 Docker 会自动拉取）
+docker compose up -d
 
-备份完整 `/data`，包括订阅配置、缓存、账号加密数据和密钥。直接启动示例用命名卷，Compose 示例用 `./data`，两者不会自动共享，迁移前应备份并迁移完整数据。
+# 查看日志
+docker compose logs -f
+```
+
+启动后访问后台或在 OKBOX 填写：`http://服务器IP:9978`。
+
+下载的完整配置中已有默认值，`.env` 仅用于可选的端口、镜像和管理令牌设置，不是部署必需文件。
+
+更新服务：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+停止使用 `docker compose down`。账号及订阅保存在 `okbox-list-data` 数据卷中，更新时保留该卷，不要使用 `docker compose down -v`。
+
+**发布状态：以上远程下载与自动拉取，需要先把配置文件上传到 GitHub，并把 `honamhui/okbox-list:0.1` 发布到 Docker Hub。本次已准备文件，尚未实际完成线上发布。**
+
+## 方式二：一键安装与管理脚本
+
+与 alist-tvbox 相同：执行一个入口，打开交互菜单。
+
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/Honanhui/okbox-list/main/okbox-list.sh)"
+```
+
+菜单：
+
+```text
+========== OKBOX-LIST 0.1 ==========
+1. 安装服务
+2. 更新服务
+3. 配置与健康检查
+4. 查看日志
+5. 启动服务
+6. 重启服务
+7. 停止服务
+0. 退出
+```
+
+安装时填写外部端口和数据卷名称，回车采用默认值。脚本拉取同一个预构建镜像，创建单个容器，不产生 Compose 分组。再次执行同一个命令可以更新和管理。
+
+配置检查会检查 Docker、容器状态、网络、/data 挂载、端口和后台健康接口，不显示个人令牌。
+
+更新复用原数据与端口；启动失败会尝试恢复旧容器。Compose 创建的容器请通过方式一更新，避免两套管理方式互相覆盖。
+
+## 当前发布状态
+
+以上是正式面向用户的两种安装方式，不需要用户下载源码或自行编译。
+
+GitHub 脚本与 Docker Hub 镜像尚未由本次工作发布，远程命令需等文件和镜像上传后才能生效。现在可运行本地 okbox-list.sh 打开相同菜单；本机已加载镜像时，可用 sudo bash okbox-list.sh install --local-image 测试安装。
+
+两种方式均要求已经安装 Docker；不会修改防火墙或删除用户数据。旧部署使用 ./data 时，应继续使用原挂载，不直接换到空命名卷。
 
 ### 环境变量
 
@@ -190,7 +212,9 @@ Cat 内部服务为 `127.0.0.1:9988`，无需对外开放。公网部署应配�
 
 ```text
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml         # 拉取镜像部署
+├── compose.build.yml          # 源码构建覆盖
+├── okbox-list.sh         # 独立容器安装与更新
 ├── server.js                  # 后台与 OKBOX 接口
 ├── public/                    # 管理页面
 ├── config/                    # 空白配置
@@ -200,7 +224,7 @@ Cat 内部服务为 `127.0.0.1:9988`，无需对外开放。公网部署应配�
 └── assets/readme/             # 后台截图
 ```
 
-不包含个人数据、账号密钥、第三方订阅脚本或 Android APK/HAP。
+不包含个人数据、账号密钥、第三方订阅脚本或 Android APK/HAP。更多部署原理和更新保护见 [DEPLOY.md](DEPLOY.md)。
 
 ## 参考与依赖
 
@@ -209,3 +233,6 @@ Cat 内部服务为 `127.0.0.1:9988`，无需对外开放。公网部署应配�
 - Java 模块使用 org.json、OkHttp、Okio、ZXing，依赖许可保留各自声明。
 
 参考文档结构或接口原理不代表拥有参考项目的全部功能。第三方订阅和依赖仍受各自许可约束。
+
+
+

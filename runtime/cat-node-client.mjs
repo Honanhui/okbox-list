@@ -1,7 +1,6 @@
 import {isCatSetupSite} from './cat-source-policy.mjs';
 const base=(process.env.CAT_NODE_URL||'').replace(/\/+$/,'');
 export function catNodeEnabled(){return Boolean(base);}
-export function catNodeConfigUrl(){return base+'/config';}
 export function isCatNodeSubscription(value){try{const url=new URL(value);return ['http:','https:'].includes(url.protocol)&&/\.js(?:\.md5)?$/.test(url.pathname);}catch{return false;}}
 export function catMediaUrl(value,runtimeBase=base){
  if(!value||!runtimeBase)return value;if(!/^https?:\/\//i.test(value))return runtimeBase+'/'+value.replace(/^\//,'');let url;try{url=new URL(value);}catch{return value;}
@@ -15,8 +14,7 @@ export async function catNodeCatalog(fetcher,signal,subscriptionUrl){
  const root=result.root,runtimeBase=base+'/r/'+result.id;if(!/^[a-f0-9]{24}$/.test(result.id)||!Array.isArray(root.video?.sites))throw new Error('Cat Node 目录格式无效');
  return root.video.sites.filter(site=>!isCatSetupSite({...site,runtime:'cat-node'})).map(site=>{const url=new URL(site.api,'http://localhost');if(!/^\/spider\/[^/]+\/\d+\/?$/.test(url.pathname))throw new Error('Cat Node 站点路径无效');return {...site,api:runtimeBase+url.pathname,runtimeBase,runtime:'cat-node',timeout:25,sourceUrl:subscriptionUrl};});
 }
-export function isFantaiyingSubscription(value){try{return new URL(value).hostname.replace(/^www\./,'')===new URL('https://饭太硬.cc').hostname;}catch{return false;}}
-export function nodeCrawlerStatus(site){return {adapter:site.catKey||site.runtime,kind:'video',state:site.runtime==='cat-node'||site.runtime==='http'?'implemented':'pending',verified:false};}
+export function nodeCrawlerStatus(site){return {adapter:site.catKey||site.runtime,kind:'video',state:site.runtime==='cat-node'?'implemented':'pending',verified:false};}
 export async function catNodeRequest(site,request,fetcher){
  const endpoint=new URL(site.api);if(!base||endpoint.origin!==new URL(base).origin)throw new Error('Cat Node 服务地址不匹配');
  const action=request.action==='player'?'play':request.action||'home';if(!['init','home','category','search','detail','play'].includes(action))throw new Error('Cat Node 操作无效');
