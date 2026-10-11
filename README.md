@@ -96,34 +96,6 @@ Basic 认证地址中的凭据会转换为请求头；跨域跳转不会自动�
 
 ## DOCKER 启动
 
-解压源码包，进入含 Dockerfile 的目录：
-
-```bash
-docker build -t honamhui/okbox-list:0.1 .
-```
-
-跨架构构建 amd64 镜像：
-
-```bash
-docker buildx build --platform linux/amd64 --pull=false -t honamhui/okbox-list:0.1 --load .
-```
-
-`--pull=false` 不保证离线，基础镜像元数据和 Alpine 软件包仍可能需要网络。
-
-直接创建单个容器：
-
-```bash
-docker run -d \
-  --name okbox-list \
-  --restart unless-stopped \
-  -p 9978:9978 \
-  -e TZ=Asia/Shanghai \
-  -v okbox-list-data:/data \
-  honamhui/okbox-list:0.1
-```
-
-镜像标签是本地构建名称，本说明不代表该镜像已发布到 Docker Hub。首次部署先构建，或加载已有的同名镜像包。
-
 ### 使用 Docker Compose（推荐）
 
 仓库中的 `docker-compose.yml` 同时包含构建与启动配置。进入项目目录执行：
