@@ -18,7 +18,7 @@ async function download(value,limit){
  }throw new Error('订阅重定向次数过多');
 }
 async function stop(runtime){const child=runtime.child;if(!child)return;runtime.child=null;await new Promise(resolve=>{const timer=setTimeout(()=>child.kill('SIGKILL'),3000);child.once('exit',()=>{clearTimeout(timer);resolve()});child.kill('SIGTERM');});}
-function start(runtime){if(runtime.child||stopping)return;const child=spawn(process.execPath,[runtime.path+'/bridge-runtime/index.js'],{cwd:runtime.path,env:{PATH:process.env.PATH,HOME:runtime.path,NODE_ENV:'production',PORT:String(runtime.port),HOST:'127.0.0.1',NODE_PATH:runtime.path},stdio:'ignore'});runtime.child=child;child.on('error',()=>{});child.once('exit',()=>{if(runtime.child===child)runtime.child=null;});}
+function start(runtime){if(runtime.child||stopping)return;const child=spawn(process.execPath,[runtime.path+'/bridge-runtime/index.js'],{cwd:runtime.path,env:{PATH:process.env.PATH,HOME:runtime.path,NODE_ENV:'production',NODE_OPTIONS:process.env.NODE_OPTIONS||'',PORT:String(runtime.port),HOST:'127.0.0.1',NODE_PATH:runtime.path},stdio:'ignore'});runtime.child=child;runtime.initialized=new Map();child.on('error',()=>{});child.once('exit',()=>{if(runtime.child===child)runtime.child=null;});}
 async function ready(runtime){const original=await fs.readFile(runtime.path+'/index.js','utf8');const patched=instrumentCat(original);await fs.mkdir(runtime.path+'/bridge-runtime',{recursive:true});await fs.writeFile(runtime.path+'/bridge-runtime/package.json',JSON.stringify({type:'commonjs'}));await fs.writeFile(runtime.path+'/bridge-runtime/index.js',patched.source,{mode:0o600});runtime.credentialHook=patched.enabled;start(runtime);const deadline=Date.now()+45000;while(Date.now()<deadline){try{const response=await fetch(`http://127.0.0.1:${runtime.port}/config`,{signal:AbortSignal.timeout(2000)});if(response.ok){const root=await response.json();if(Array.isArray(root.video?.sites))return root;}}catch{}if(!runtime.child)throw new Error('Cat 程序启动失败或不兼容');await new Promise(resolve=>setTimeout(resolve,250));}throw new Error('Cat 程序启动超时');}
 async function catalog(value){const url=sourceUrl(value),id=crypto.createHash('sha256').update(url.href).digest('hex').slice(0,24);let runtime=runtimes.get(id);if(!runtime){runtime={id,path:dir+'/'+id,port:nextPort++};runtimes.set(id,runtime);}if(runtime.pending)return runtime.pending;
  runtime.pending=(async()=>{await fs.mkdir(runtime.path,{recursive:true});await fs.writeFile(runtime.path+'/source.json',JSON.stringify({url:url.href}),{mode:0o600});
@@ -35,7 +35,15 @@ const server=http.createServer(async(req,res)=>{try{
  if(url.pathname==='/health'){res.setHeader('content-type','application/json');res.end(JSON.stringify({ok:true,runtimes:runtimes.size}));return;}
  if(url.pathname==='/catalog'&&req.method==='POST'){let body='';for await(const chunk of req){body+=chunk;if(body.length>16384)throw new Error('请求过大');}const result=await catalog(JSON.parse(body).url);res.setHeader('content-type','application/json');res.end(JSON.stringify(result));return;}
  const match=url.pathname.match(/^\/r\/([a-f0-9]{24})(\/.*)$/);if(!match){res.writeHead(404);res.end();return;}
- const runtime=await restore(match[1]);const headers={...req.headers,host:`127.0.0.1:${runtime.port}`};delete headers.authorization;
+ const runtime=await restore(match[1]);
+ // Cat clients initialize each Spider before browsing. Keep this state tied
+ // to the child process so a restart does not reuse old initialization.
+ const spider=match[2].match(/^(\/spider\/[^/]+\/\d+)\/(home|category|search|detail|play)$/);
+ if(spider){const prefix=spider[1];if(!runtime.initialized.has(prefix)){
+  const pending=(async()=>{const reply=await fetch('http://127.0.0.1:'+runtime.port+prefix+'/init',{method:'POST',headers:{'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(30000)});if(!reply.ok&&reply.status!==404){const failure=await reply.json().catch(()=>({}));throw new Error('Cat 初始化失败：'+String(failure.message||failure.error||reply.status).slice(0,180));}await reply.body?.cancel();})();
+  runtime.initialized.set(prefix,pending);pending.catch(()=>runtime.initialized.delete(prefix));
+ }await runtime.initialized.get(prefix);}
+ const headers={...req.headers,host:`127.0.0.1:${runtime.port}`};delete headers.authorization;
  const upstream=http.request({hostname:'127.0.0.1',port:runtime.port,path:match[2]+url.search,method:req.method,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res)});upstream.on('error',()=>{if(!res.headersSent)res.writeHead(502);res.end('Cat 服务连接失败')});req.pipe(upstream);
  }catch(error){if(!res.headersSent)res.writeHead(502,{'content-type':'application/json'});res.end(JSON.stringify({error:catDownloadError(error)}));}});
 server.listen(port,process.env.HOST||'127.0.0.1');

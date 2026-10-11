@@ -793,7 +793,7 @@ function tvboxSite(key) {
 
 function tvboxResult(value) {
   if (!value || typeof value !== "object") throw createError(502, "TVBox 源返回了无效数据");
-  if (value.code === undefined && value.list === undefined && value.vod_list === undefined && value.data === undefined) {
+  if (value.code === undefined && value.list === undefined && value.vod_list === undefined && value.data === undefined && value.class === undefined) {
     return { code: 1, msg: "", page: 1, pagecount: 1, limit: 100, total: 0, list: [] };
   }
   return value;
