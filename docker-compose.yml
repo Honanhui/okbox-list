@@ -2,7 +2,6 @@ name: okbox-list
 
 services:
   okbox-list:
-    # 单镜像包含后台、Cat Node 爬虫及网盘登录服务。
     image: ${OKBOX_IMAGE:-honamhui/okbox-list:0.1}
     container_name: okbox-list
     restart: unless-stopped
@@ -22,5 +21,4 @@ services:
 
 volumes:
   okbox_list_data:
-    # 固定卷名，可与一键安装和 docker run 共用。
     name: ${OKBOX_DATA_VOLUME:-okbox-list-data}
