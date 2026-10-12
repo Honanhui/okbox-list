@@ -12,8 +12,10 @@ const rules=[
  ['tianyi','__account','/website/api/pan189/account'],
 ];
 export function createCatAccountSync({baseUrl,credentials,fetcher}){
- const digests=new Map(),states=new Map();let pending;
+ const digests=new Map(),states=new Map();let pending,nativeProbe,nativeInstance;
  async function sync(){
+  nativeProbe??=(async()=>{try{const response=await fetcher(new URL('__okbox/capabilities',baseUrl),{signal:AbortSignal.timeout(3000)});return response.ok&&(await response.json()).credentialMode==='tvbox-list';}catch{nativeProbe=undefined;return false;}})();const native=await nativeProbe;
+  if(native){try{const response=await fetcher(new URL('__okbox/capabilities',baseUrl),{signal:AbortSignal.timeout(3000)});if(!response.ok)throw Error();const current=(await response.json()).instanceId;if(current!==nativeInstance){digests.clear();nativeInstance=current;}}catch{return ['quark','uc','baidu','aliyun'].map(provider=>({provider,state:'error'}));}const results=[];for(const provider of ['quark','uc','baidu','aliyun']){try{const secret=await credentials(provider)||{},key='native/'+provider,digest=crypto.createHash('sha256').update(JSON.stringify(secret)).digest('hex');if(digests.get(key)===digest){results.push(states.get(key));continue;}const response=await fetcher(new URL('__okbox/credential',baseUrl),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider,secret}),signal:AbortSignal.timeout(8000)}),result=await response.json();if(!response.ok||result.code!==0)throw Error('同步失败');const state={provider,field:'credential',state:result.state};digests.set(key,digest);states.set(key,state);results.push(state);}catch{results.push({provider,field:'credential',state:'error'});}}return results;}
   const secrets=new Map();await Promise.all([...new Set([...rules.map(r=>r[0]),...ownedProviders])].map(async id=>secrets.set(id,await credentials(id))));
   const results=await Promise.all(rules.map(async([provider,field,path])=>{
    const secret=secrets.get(provider)||{},value=field==='__account'?(secret.username&&secret.password?JSON.stringify({account:secret.username,password:secret.password}):''):String(secret[field]|| (field==='refreshtoken'?secret.refresh_token||'':'')).trim();

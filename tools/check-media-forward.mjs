@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {EventEmitter} from 'node:events';
+import {Writable} from 'node:stream';
+import {fetchMediaUpstream,forwardMediaBody} from '../runtime/media-forward.mjs';
+const res=new EventEmitter();let signal;
+const response=await fetchMediaUpstream(async(_url,options)=>{signal=options.signal;return new Response('video');},'https://media.example/file',{},res,10);
+await new Promise(r=>setTimeout(r,25));assert.equal(signal.aborted,false,'movie body must survive header deadline');res.emit('close');assert.equal(signal.aborted,true,'seeking/disconnect must cancel old download');
+let bytes=0;const sink=new Writable({highWaterMark:1,write(chunk,_enc,next){setTimeout(()=>{bytes+=chunk.length;next();},5);}});await forwardMediaBody(response,sink);assert.equal(bytes,5);
+const timeoutRes=new EventEmitter();await assert.rejects(()=>fetchMediaUpstream(async(_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('deadline')))),'https://media.example/file',{},timeoutRes,5),/deadline/);assert.equal(timeoutRes.listenerCount('close'),0);
+console.log('PASS media header deadline, player disconnect cancellation and backpressure');

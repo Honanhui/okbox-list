@@ -25,7 +25,7 @@ public final class Worker {
    case "auth-poll":return CloudAuthService.poll(r.optString("sessionId"));
    case "auth-cancel":return CloudAuthService.cancel(r.optString("sessionId"));
    case "inspect":return CloudShare.inspect(r.optString("url"));
-   case "credentials":return CloudAccountStore.firstSecretForProvider(p);
+   case "credentials":return CloudTokenService.ensureFresh(p);
    case "gateway-status":return CloudGateway.status();
    case "gateway-config":return CloudGateway.tvFanConfig();
    case "gateway-token":return CloudGateway.tokenConfig();

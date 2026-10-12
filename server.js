@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import tls from "node:tls";
 
 import {probeMedia} from './runtime/media-probe.mjs';
+import {fetchMediaUpstream,forwardMediaBody} from './runtime/media-forward.mjs';
 import {resolvePlayerPage,streamTsMedia} from './runtime/player-page.mjs';
 
 import {catNodeEnabled,catNodeCatalog,catNodeRequest,isCatNodeSubscription,nodeCrawlerStatus} from './runtime/cat-node-client.mjs';
@@ -884,7 +885,7 @@ async function proxyMediaToken(req, res, token) {
   // Replacing its UA with the client's UA can return an anti-bot page.
   // Otherwise keep the HTTP client's stable default, independent of player UA.
   const cachedPlaylist = req.method === 'GET' && entry.playlist;
-  const upstream = cachedPlaylist ? new Response(cachedPlaylist.source,{headers:{'content-type':'application/vnd.apple.mpegurl'}}) : await remoteFetch(entry.url, { method: req.method, headers, redirect: "follow", signal: AbortSignal.timeout(30000) });
+  const upstream = cachedPlaylist ? new Response(cachedPlaylist.source,{headers:{'content-type':'application/vnd.apple.mpegurl'}}) : await fetchMediaUpstream(remoteFetch,entry.url,{method:req.method,headers,redirect:'follow'},res);
   const contentType = String(upstream.headers.get("content-type") || "").toLowerCase();
   const playlist = contentType.includes("mpegurl") || entry.url.toLowerCase().includes(".m3u8");
   if (req.method === "GET" && playlist && upstream.body) {
@@ -927,8 +928,7 @@ async function proxyMediaToken(req, res, token) {
   }
   res.writeHead(upstream.status, outputHeaders);
   if (req.method === "HEAD" || !upstream.body) return res.end();
-  for await (const chunk of upstream.body) res.write(chunk);
-  res.end();
+  await forwardMediaBody(upstream,res);
 }
 
 function subscriptionConfig(req, requestedId) {

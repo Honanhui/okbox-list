@@ -376,6 +376,10 @@ final class CloudProviderQrService {
             headers.put("Cookie", login.cookies);
             headers.put("Referer", "https://drive.uc.cn/");
             HttpResult warmup = request("GET", "https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc&pdir_fid=0&_page=1&_size=50&_fetch_total=1&_fetch_sub_dirs=0&_sort=file_type:asc,updated_at:desc", headers, null);
+            JSONObject verified = warmup.body.isEmpty() ? new JSONObject() : new JSONObject(warmup.body);
+            if (warmup.code != 200 || verified.optInt("status", -1) != 200) {
+                throw new IllegalStateException("UC 扫码已确认，但网盘目录授权验证失败（HTTP " + warmup.code + "），未保存无效 Cookie");
+            }
             return saveCookie(id, session, mergeCookies(login.cookies, warmup.cookies), "UC 网盘登录成功，Cookie 已自动保存");
         }
         int status = result.optInt("status");
