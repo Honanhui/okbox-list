@@ -29,13 +29,14 @@ public final class CloudAccountValidator {
         try {
             String message = switch (provider) {
                 case "aliyun" -> validateAliyun();
+                case "uc" -> validateUc(secret);
                 case "pan123" -> validate123(secret);
                 case "thunder" -> validateThunder(secret);
                 case "bilibili" -> validateBilibili(secret);
                 default -> validateRequired(secret, provider);
             };
             boolean checkedOnline = "aliyun".equals(provider) || "pan123".equals(provider)
-                    || "thunder".equals(provider) || "bilibili".equals(provider);
+                    || "thunder".equals(provider) || "bilibili".equals(provider) || "uc".equals(provider);
             return CloudAccountStore.setValidation(id, checkedOnline ? "valid" : "deferred", message);
         } catch (VerificationRequiredException error) {
             return CloudAccountStore.setVerification(id, error.getMessage(), error.url);
@@ -63,6 +64,20 @@ public final class CloudAccountValidator {
         }
     }
 
+    private static String validateUc(JSONObject secret) throws Exception {
+        String cookie = first(secret, "cookie", "Cookie");
+        if (cookie.isEmpty()) throw new IllegalStateException("UC Cookie 为空，请扫码登录");
+        Request request = new Request.Builder().url("https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc&pdir_fid=0&_page=1&_size=1&_fetch_total=1&_fetch_sub_dirs=0&_sort=file_type:asc,updated_at:desc")
+                .header("Cookie", cookie).header("Referer", "https://drive.uc.cn/")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch").build();
+        try (Response response = OkHttp.client(12_000).newCall(request).execute()) {
+            String body = response.body() == null ? "" : response.body().string();
+            JSONObject result = body.isEmpty() ? new JSONObject() : new JSONObject(body);
+            if (response.code() == 401 || result.optInt("status") == 401) throw new IllegalStateException("UC Cookie 已失效或授权被拒绝，请重新扫码登录（HTTP 401）");
+            if (!response.isSuccessful() || result.optInt("status", -1) != 200) throw new IllegalStateException("UC 官方目录验证失败（HTTP " + response.code() + "），不能确认登录有效");
+            return "登录有效，已通过 UC 官方目录检查";
+        }
+    }
     private static String validateAliyun() throws Exception {
         JSONObject secret = CloudTokenService.ensureFresh("aliyun");
         if (first(secret, "access_token", "accessToken").isEmpty()) throw new IllegalStateException("阿里云盘授权已失效，请重新扫码登录");
