@@ -10,3 +10,5 @@ runtime/cloud/lib 中的 JAR 为本服务编译和运行依赖，文件内保留
 | zxing.jar | com.google.zxing:core |
 
 发布时请保留随包 THIRD-PARTY-LICENSES 目录中的依赖许可。未为本项目新增整体许可证；参考项目和外部订阅不因本源码包改变授权范围。
+
+阿里分享播放驱动复用本项目饭太硬CAT的 AliCloud 与设备签名，源码位于 runtime/ali-source，运行bundle为runtime/ali-driver-bundle.mjs。MIT许可见THIRD-PARTY-LICENSES/OKBOX-CatVodOpen-MIT.txt。设备签名包含@noble/curves依赖。

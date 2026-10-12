@@ -1,3 +1,4 @@
+import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
 import {isCatSetupSite} from './runtime/cat-source-policy.mjs';
 import {rewriteCatPosters} from './runtime/cat-posters.mjs';
 import {isDj92Site,dj92Request} from './runtime/dj92-adapter.mjs';
@@ -26,6 +27,7 @@ const HOST = process.env.HOST || "::";
 const CONFIG_PATH = path.resolve(process.env.CONFIG_PATH || path.join(ROOT, "data", "config.json"));
 const CATALOG_CACHE_PATH = path.join(path.dirname(CONFIG_PATH), "catalog-cache.json");
 const cloudHost = new CloudHost(path.join(path.dirname(CONFIG_PATH), "cloud"));
+const aliPlayback=createAliPlayback({cacheFile:path.join(path.dirname(CONFIG_PATH),"ali-transfers.json"),credentials:()=>cloudHost.call({action:'credentials',provider:'aliyun'}),persist:values=>cloudHost.call({action:'ali-playback-persist',values:{refreshToken:values.refreshToken,access_token:values.accessToken,driveId:values.driveId}}),request:async (url,options)=>{const r=await remoteFetch(url,{...options,signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error('阿里接口 HTTP '+r.status);return {content:await r.text(),headers:r.headers};}});
 const catAccountSyncs=new Map(),catSyncStates=new Map();
 async function syncCatAccounts(runtimeBase){
  if(!catNodeEnabled())return [];
@@ -34,13 +36,14 @@ async function syncCatAccounts(runtimeBase){
 }
 
 function catAccountStatus(account){
+ if(account.provider==='aliyun')return {state:'bridge',message:'Bridge 阿里分享播放驱动已接入'};
  if(!catSyncProviders.includes(account.provider))return {state:'unsupported',message:'当前 Cat 凭据接口尚未接通'};
  const activeBases=new Set(activeTvboxSites().map(site=>site.runtimeBase).filter(Boolean));
  const states=[...catSyncStates.entries()].filter(([base])=>activeBases.has(base)).flatMap(([,states])=>states).filter(x=>x.provider===account.provider);
  if(!states.length)return {state:'pending',message:'等待订阅爬虫启动并同步'};
  if(states.some(x=>x.state==='error'))return {state:'error',message:'爬虫凭据同步失败，请重试'};
  if(states.some(x=>x.state==='stored'))return {state:'stored',message:'凭据已交给Docker；当前Cat没有对应播放驱动'};
- if(states.some(x=>x.state==='synced'))return {state:'synced',message:'已同步到订阅爬虫，播放待验证'};
+ if(states.some(x=>x.state==='synced'))return {state:'synced',message:'已同步到订阅爬虫'};
  if(states.some(x=>x.state==='unsupported'))return {state:'unsupported',message:'该订阅未提供对应凭据接口'};
  return {state:'missing',message:account.disabled?'已停用并清除爬虫凭据':'尚无可同步凭据'};
 }
@@ -850,8 +853,8 @@ function getMediaToken(token) {
 }
 
 async function bridgeTvboxRuntimePlayer(req,request,site){
- if(!isDj92Site(site))await syncCatAccounts(site.runtimeBase);
- let value=isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);
+ if(!isDj92Site(site)&&!aliEpisode(request.id))await syncCatAccounts(site.runtimeBase);
+ let value=aliEpisode(request.id)?await aliPlayback.play(request.id):isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);
  if(Number(value?.parse)||Number(value?.jx))value=await resolvePlayerPage(value,remoteFetch,normalizeHttpHeaders(value.header||value.headers));
  const url=String(value?.url||value?.streamUrl||'').trim();if(!/^https?:\/\//i.test(url))throw createError(502,'Cat Node 没有返回 HTTP 播放地址');
  const token=mediaToken({url,siteId:site.key,resourcePath:url,headers:normalizeHttpHeaders(value.header||value.headers),transform:value.mediaTransform});
@@ -861,6 +864,7 @@ async function bridgeTvboxRuntimePlayer(req,request,site){
 async function bridgeTvboxSpider(req,request,site){
  if(!isDockerExecutableTvboxSite(site))throw createError(501,`源“${site.name}”尚未匹配 Cat Node 适配器`);
  if(request.action==='player')return bridgeTvboxRuntimePlayer(req,request,site);
+ if(request.action==='detail'&&aliShare(request.id))return tvboxResult(await aliPlayback.detail(request.id));
  // Browsing does not require credentials. Account changes sync through the
  // management API, and playback still waits for synchronization above.
  const value=isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);

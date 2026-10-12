@@ -352,12 +352,16 @@ final class CloudProviderQrService {
         values.put("client_id", "381");
         values.put("v", "1.2");
         values.put("request_id", String.valueOf(now));
-        JSONObject result = json("POST", "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin?__dt=0&__t=" + now, ucHeaders(), form(values));
+        Map<String, String> initialHeaders = ucHeaders();
+        initialHeaders.put("Referer", "https://drive.uc.cn");
+        HttpResult initial = request("POST", "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin?__dt=0&__t=" + now, initialHeaders, form(values));
+        if (initial.code != 200) throw new IllegalStateException("UC 二维码请求失败（HTTP " + initial.code + "）");
+        JSONObject result = new JSONObject(initial.body);
         String token = nested(result, "data", "members").optString("token");
         if (result.optInt("status") != 2000000 || token.isEmpty()) throw new IllegalStateException("UC 没有返回有效登录二维码");
         String qr = "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token="
                 + enc(token) + "&client_id=381&uc_biz_str=" + enc("S:custom|C:titlebar_fix");
-        return session("uc", name, token, qr, "请使用 UC 网盘 App 扫码并确认登录", new JSONObject(), false);
+        return session("uc", name, token, qr, "请使用 UC 网盘 App 扫码并确认登录", new JSONObject().put("cookies", initial.cookies), false);
     }
 
     private static JSONObject pollUc(String id, Session session) throws Exception {
@@ -367,20 +371,35 @@ final class CloudProviderQrService {
         values.put("v", "1.2");
         values.put("request_id", String.valueOf(now));
         values.put("token", session.token);
-        JSONObject result = json("POST", "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken?__dt=0&__t=" + now, ucHeaders(), form(values));
+        Map<String, String> authHeaders = ucHeaders();
+        authHeaders.put("Referer", "https://drive.uc.cn");
+        authHeaders.put("Cookie", session.meta.optString("cookies"));
+        HttpResult ticketResponse = request("GET", "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken?__dt=0&__t=" + now + "&" + new String(form(values), StandardCharsets.UTF_8), authHeaders, null);
+        if (ticketResponse.code != 200) throw new IllegalStateException("UC 扫码状态请求失败（HTTP " + ticketResponse.code + "）");
+        session.meta.put("cookies", mergeCookies(session.meta.optString("cookies"), ticketResponse.cookies));
+        JSONObject result = new JSONObject(ticketResponse.body);
         String ticket = nested(result, "data", "members").optString("service_ticket");
         if (!ticket.isEmpty()) {
-            HttpResult login = request("GET", "https://drive.uc.cn/account/info?st=" + enc(ticket), ucHeaders(), null);
+            authHeaders.put("Cookie", session.meta.optString("cookies"));
+            HttpResult login = request("GET", "https://drive.uc.cn/account/info?st=" + enc(ticket) + "&fr=pc&platform=pc", authHeaders, null);
+            if (login.code != 200) throw new IllegalStateException("UC 登录授权兑换失败（HTTP " + login.code + "）");
             if (login.cookies.isEmpty()) throw new IllegalStateException("UC 没有返回登录 Cookie");
             Map<String, String> headers = ucHeaders();
-            headers.put("Cookie", login.cookies);
-            headers.put("Referer", "https://drive.uc.cn/");
+            String loginCookies = mergeCookies(session.meta.optString("cookies"), login.cookies);
+            headers.put("Cookie", loginCookies);
+            headers.put("Referer", "https://drive.uc.cn");
+            headers.put("Origin", "https://drive.uc.cn");
+            // Account cookies require the cloud-service config handshake before directory access.
+            HttpResult config = request("GET", "https://pc-api.uc.cn/1/clouddrive/config?pr=UCBrowser&fr=pc&uc_param_str=", headers, null);
+            if (config.code != 200) throw new IllegalStateException("UC 网盘配置初始化失败（HTTP " + config.code + "），未保存无效 Cookie");
+            String cloudCookies = mergeCookies(loginCookies, config.cookies);
+            headers.put("Cookie", cloudCookies);
             HttpResult warmup = request("GET", "https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc&pdir_fid=0&_page=1&_size=50&_fetch_total=1&_fetch_sub_dirs=0&_sort=file_type:asc,updated_at:desc", headers, null);
             JSONObject verified = warmup.body.isEmpty() ? new JSONObject() : new JSONObject(warmup.body);
             if (warmup.code != 200 || verified.optInt("status", -1) != 200) {
                 throw new IllegalStateException("UC 扫码已确认，但网盘目录授权验证失败（HTTP " + warmup.code + "），未保存无效 Cookie");
             }
-            return saveCookie(id, session, mergeCookies(login.cookies, warmup.cookies), "UC 网盘登录成功，Cookie 已自动保存");
+            return saveCookie(id, session, mergeCookies(cloudCookies, warmup.cookies), "UC 网盘登录成功，Cookie 已自动保存");
         }
         int status = result.optInt("status");
         if (status == 50004002 || status == 50004003 || status == 50004004) return expired(id, "二维码已失效或登录已取消，请重新获取");

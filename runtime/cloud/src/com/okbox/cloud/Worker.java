@@ -26,6 +26,7 @@ public final class Worker {
    case "auth-cancel":return CloudAuthService.cancel(r.optString("sessionId"));
    case "inspect":return CloudShare.inspect(r.optString("url"));
    case "credentials":return CloudTokenService.ensureFresh(p);
+   case "ali-playback-persist":CloudAccountStore.mergeProviderSecret("aliyun",r.getJSONObject("values"));return new JSONObject().put("ok",true);
    case "gateway-status":return CloudGateway.status();
    case "gateway-config":return CloudGateway.tvFanConfig();
    case "gateway-token":return CloudGateway.tokenConfig();
