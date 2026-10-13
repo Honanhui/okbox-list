@@ -8,6 +8,8 @@ OKBOX-LIST 是供 OKBOX 使用的自部署订阅管理与 Cat Node 爬虫服务�
 
 用户手动添加 Cat Node 订阅，服务读取站点列表，由订阅中的 Node.js 爬虫完成首页、分类、搜索、详情和播放解析。项目不内置订阅，也不提供影视内容。
 
+目前支持王二小的cat订阅源：http://wexfnw:wexfnw@cat.xn--4kq62z5rby2qupq9ub.top/index.js.md5
+
 ## 项目定位
 
 - **订阅管理**：每份订阅独立抓取、缓存和保存，提供多仓切换，不合并不同订阅的站点。

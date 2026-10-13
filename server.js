@@ -1,4 +1,5 @@
 import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
+import {retryDelay,refreshDue} from './runtime/subscription-retry.mjs';
 import {isCatSetupSite} from './runtime/cat-source-policy.mjs';
 import {rewriteCatPosters} from './runtime/cat-posters.mjs';
 import {isDj92Site,dj92Request} from './runtime/dj92-adapter.mjs';
@@ -497,6 +498,7 @@ function subscriptionCatalog() {
       const status = configStatuses.find(status => status.id === item.id);
       return { ...item, active: item.id === config.activeId, state: ({ok:"ready",refreshing:"fetching"})[status?.state] || status?.state || "pending",
         siteCount: tvboxSites.filter(site => site.configId === item.id && !isCatSetupSite(site)).length,
+        nextRetryAt: status?.nextRetryAt || null,
         error: ["error", "stale"].includes(status?.state) ? status.message : "" };
     })
   };
@@ -696,6 +698,7 @@ async function refreshTvboxCatalog(onlyId = "", signal) {
     state: configItem.enabled ? "refreshing" : "disabled",
     message: configItem.enabled ? "正在抓取…" : "已停用",
     sourceCount: 0,
+    failureCount: previous?.failureCount || 0,
     fetchedAt: null
     };
   });
@@ -733,6 +736,8 @@ async function refreshTvboxCatalog(onlyId = "", signal) {
       }
       catalogCache.set(configItem.id, { url: configItem.url, sites: mappedSites, metadata: result.metadata || { parses: [], lives: [], rules: [] }, savedAt: new Date().toISOString() });
       status.state = "ok";
+      status.failureCount = 0;
+      status.nextRetryAt = null;
       status.message = `抓取成功，解析 ${sites.length} 个源`;
       status.sourceCount = sites.length;
       status.httpStatus = result.status;
@@ -754,6 +759,8 @@ async function refreshTvboxCatalog(onlyId = "", signal) {
       const message = error.message || "抓取失败";
       const cached = catalogCache.get(configItem.id);
       status.state = "error";
+      status.failureCount = (status.failureCount || 0) + 1;
+      status.nextRetryAt = Date.now() + retryDelay(status.failureCount);
       status.message = message;
       status.fetchedAt = new Date().toISOString();
       if (cached?.url === configItem.url && cached.sites?.length) {
@@ -784,10 +791,9 @@ function scheduleCatalogRefresh() {
   refreshTimer = setInterval(() => {
     if(catalogRefreshJob)return;
     const now=Date.now();
-    const due=config.configUrls.find(item=>item.enabled && now-(Date.parse(configStatuses.find(s=>s.id===item.id)?.fetchedAt)||0)>=
-      Math.min(config.refreshMinutes,5)*60000);
+    const due=config.configUrls.find(item=>item.enabled && refreshDue(configStatuses.find(s=>s.id===item.id),now,config.refreshMinutes));
     if(due)startCatalogRefresh(due.id);
-  },60000);
+  },15000);
 }
 
 function tvboxSite(key) {
