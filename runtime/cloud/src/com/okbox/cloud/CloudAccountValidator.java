@@ -32,7 +32,7 @@ public final class CloudAccountValidator {
                 case "uc" -> validateUc(secret);
                 case "quark" -> validateQuark(secret);
                 case "baidu" -> validateBaidu(secret);
-                case "mobile139" -> validateMobile(secret);
+                case "mobile139" -> validateMobileAuthorization(account, secret);
                 case "pan123" -> validate123(secret);
                 case "thunder" -> validateThunder(secret);
                 case "bilibili" -> validateBilibili(secret);
@@ -99,6 +99,39 @@ public final class CloudAccountValidator {
         return "登录有效";
     }
 
+    private static String validateMobileAuthorization(JSONObject account, JSONObject secret) throws Exception {
+        String decoded;
+        try { decoded = new String(java.util.Base64.getDecoder().decode(first(secret, "token")), StandardCharsets.UTF_8); }
+        catch (Exception error) { throw new IllegalStateException("移动 Token 格式无效，请重新扫码登录"); }
+        String[] parts = decoded.split(":", 3);
+        if (parts.length != 3 || parts[1].isBlank() || parts[2].isBlank()) throw new IllegalStateException("移动 Token 缺少账号或授权信息，请重新扫码登录");
+        parts[2] = CloudProviderQrService.normalizeMobile139Token(parts[2], "");
+        String xml = "<root><token>" + xmlEscape(parts[2]) + "</token><account>" + xmlEscape(parts[1]) + "</account><clienttype>656</clienttype></root>";
+        Request request = new Request.Builder().url("https://aas.caiyun.feixin.10086.cn/tellin/authTokenRefresh.do")
+            .post(RequestBody.create(MediaType.parse("application/xml; charset=utf-8"), xml)).build();
+        try (Response response = OkHttp.client(12_000).newCall(request).execute()) {
+            if (!response.isSuccessful()) throw new IllegalStateException("移动官方 Token 授权检查失败（HTTP " + response.code() + "）");
+            String body = response.body() == null ? "" : response.body().string();
+            javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            org.w3c.dom.Document document = factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
+            String code = xmlValue(document, "return"), token = xmlValue(document, "token");
+            if (!"0".equals(code) || token.isBlank()) throw new IllegalStateException("移动官方 Token 授权检查失败：" + xmlValue(document, "desc") + "（code=" + code + "）");
+            String refreshed = java.util.Base64.getEncoder().encodeToString((parts[0] + ":" + parts[1] + ":" + token).getBytes(StandardCharsets.UTF_8));
+            JSONObject values = new JSONObject().put("token", refreshed).put("authorization", "Basic " + refreshed).put("account", parts[1]).put("auth_token", token);
+            JSONObject loginData = secret.optJSONObject("loginData");
+            if (loginData != null) values.put("loginData", new JSONObject(loginData.toString()).put("token", token));
+            CloudAccountStore.save(account.optString("id"), "mobile139", account.optString("name"), values, account);
+            return "登录有效，已通过官方 Token 授权检查";
+        }
+    }
+    private static String xmlEscape(String value) { return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
+    private static String xmlValue(org.w3c.dom.Document document, String tag) {
+        org.w3c.dom.NodeList nodes = document.getElementsByTagName(tag);
+        return nodes.getLength() == 0 ? "" : nodes.item(0).getTextContent().trim();
+    }
     private static String validateMobile(JSONObject secret) throws Exception {
         String token = first(secret, "token");
         if (token.isEmpty()) throw new IllegalStateException("移动 Token 为空，请重新登录");
@@ -135,7 +168,7 @@ public final class CloudAccountValidator {
         if (cookie.isEmpty()) throw new IllegalStateException("UC Cookie 为空，请扫码登录");
         Request request = new Request.Builder().url("https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc&pdir_fid=0&_page=1&_size=1&_fetch_total=1&_fetch_sub_dirs=0&_sort=file_type:asc,updated_at:desc")
                 .header("Cookie", cookie).header("Referer", "https://drive.uc.cn/")
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch").build();
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36").build();
         try (Response response = OkHttp.client(12_000).newCall(request).execute()) {
             String body = response.body() == null ? "" : response.body().string();
             JSONObject result = body.isEmpty() ? new JSONObject() : new JSONObject(body);

@@ -41,6 +41,7 @@ final class CloudProviderQrService {
     static final String PREFIX = "provider:";
     private static final String BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
     private static final String UC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) uc-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch";
+    private static final String UC_WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36";
     private static final String PAN123_LOGIN = "https://login.123pan.com";
     private static final String MOBILE_139_BASE = "https://yun.139.com/orchestration/auth-rebuild";
     private static final String MOBILE_139_VERSION = "7.18.0";
@@ -155,6 +156,7 @@ final class CloudProviderQrService {
         // waiting, so only credential-bearing responses complete the session.
         boolean successful = !account.isEmpty() && !token.isEmpty();
         if (successful) {
+            token = normalizeMobile139Token(token, aesKey);
             String authorization = Base64.encodeToString(("pc:" + account + ":" + token).getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
             JSONObject values = new JSONObject().put("token", authorization).put("authorization", "Basic " + authorization)
                     .put("account", account).put("auth_token", token).put("userDomainId", first(data, "userDomainId", "user_domain_id"))
@@ -352,16 +354,20 @@ final class CloudProviderQrService {
         values.put("client_id", "381");
         values.put("v", "1.2");
         values.put("request_id", String.valueOf(now));
-        Map<String, String> initialHeaders = ucHeaders();
-        initialHeaders.put("Referer", "https://drive.uc.cn");
-        HttpResult initial = request("POST", "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin?__dt=0&__t=" + now, initialHeaders, form(values));
+        Map<String, String> authHeaders = ucHeaders();
+        authHeaders.put("User-Agent", UC_WEB_UA);
+        HttpResult landing = request("GET", "https://drive.uc.cn/", authHeaders, null);
+        if (landing.code != 200) throw new IllegalStateException("UC 登录页面会话初始化失败（HTTP " + landing.code + "）");
+        authHeaders.put("Cookie", landing.cookies);
+        authHeaders.put("Referer", "https://drive.uc.cn/");
+        HttpResult initial = request("POST", "https://api.open.uc.cn/cas/ajax/getTokenForQrcodeLogin?__dt=0&__t=" + now, authHeaders, form(values));
         if (initial.code != 200) throw new IllegalStateException("UC 二维码请求失败（HTTP " + initial.code + "）");
         JSONObject result = new JSONObject(initial.body);
         String token = nested(result, "data", "members").optString("token");
         if (result.optInt("status") != 2000000 || token.isEmpty()) throw new IllegalStateException("UC 没有返回有效登录二维码");
         String qr = "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token="
                 + enc(token) + "&client_id=381&uc_biz_str=" + enc("S:custom|C:titlebar_fix");
-        return session("uc", name, token, qr, "请使用 UC 网盘 App 扫码并确认登录", new JSONObject().put("cookies", initial.cookies), false);
+        return session("uc", name, token, qr, "请使用 UC 网盘 App 扫码并确认登录", new JSONObject().put("cookies", mergeCookies(landing.cookies, initial.cookies)), false);
     }
 
     private static JSONObject pollUc(String id, Session session) throws Exception {
@@ -372,34 +378,34 @@ final class CloudProviderQrService {
         values.put("request_id", String.valueOf(now));
         values.put("token", session.token);
         Map<String, String> authHeaders = ucHeaders();
-        authHeaders.put("Referer", "https://drive.uc.cn");
+        authHeaders.put("User-Agent", UC_WEB_UA);
+        authHeaders.put("Referer", "https://drive.uc.cn/");
         authHeaders.put("Cookie", session.meta.optString("cookies"));
-        HttpResult ticketResponse = request("GET", "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken?__dt=0&__t=" + now + "&" + new String(form(values), StandardCharsets.UTF_8), authHeaders, null);
-        if (ticketResponse.code != 200) throw new IllegalStateException("UC 扫码状态请求失败（HTTP " + ticketResponse.code + "）");
-        session.meta.put("cookies", mergeCookies(session.meta.optString("cookies"), ticketResponse.cookies));
+        HttpResult ticketResponse = request("POST", "https://api.open.uc.cn/cas/ajax/getServiceTicketByQrcodeToken?__dt=0&__t=" + now, authHeaders, form(values));
+        if (ticketResponse.code != 200) throw new IllegalStateException("UC 扫码票据请求失败（HTTP " + ticketResponse.code + "）");
+        String sessionCookies = mergeCookies(session.meta.optString("cookies"), ticketResponse.cookies);
+        session.meta.put("cookies", sessionCookies);
         JSONObject result = new JSONObject(ticketResponse.body);
         String ticket = nested(result, "data", "members").optString("service_ticket");
         if (!ticket.isEmpty()) {
-            authHeaders.put("Cookie", session.meta.optString("cookies"));
-            HttpResult login = request("GET", "https://drive.uc.cn/account/info?st=" + enc(ticket) + "&fr=pc&platform=pc", authHeaders, null);
-            if (login.code != 200) throw new IllegalStateException("UC 登录授权兑换失败（HTTP " + login.code + "）");
+            authHeaders.put("Cookie", sessionCookies);
+            HttpResult login = request("GET", "https://drive.uc.cn/account/info?st=" + enc(ticket), authHeaders, null);
+            JSONObject accountInfo = login.body.isEmpty() ? new JSONObject() : new JSONObject(login.body);
+            if (login.code != 200 || "AUTH_ERROR".equals(accountInfo.optString("code"))) {
+                return new JSONObject().put("state", "failed").put("message", "UC 扫码已确认，但账号授权兑换失败（HTTP " + login.code + "，code=" + accountInfo.optString("code", "未知") + "），未保存 Cookie");
+            }
             if (login.cookies.isEmpty()) throw new IllegalStateException("UC 没有返回登录 Cookie");
             Map<String, String> headers = ucHeaders();
-            String loginCookies = mergeCookies(session.meta.optString("cookies"), login.cookies);
+            headers.put("User-Agent", UC_WEB_UA);
+            String loginCookies = mergeCookies(sessionCookies, login.cookies);
             headers.put("Cookie", loginCookies);
-            headers.put("Referer", "https://drive.uc.cn");
-            headers.put("Origin", "https://drive.uc.cn");
-            // Account cookies require the cloud-service config handshake before directory access.
-            HttpResult config = request("GET", "https://pc-api.uc.cn/1/clouddrive/config?pr=UCBrowser&fr=pc&uc_param_str=", headers, null);
-            if (config.code != 200) throw new IllegalStateException("UC 网盘配置初始化失败（HTTP " + config.code + "），未保存无效 Cookie");
-            String cloudCookies = mergeCookies(loginCookies, config.cookies);
-            headers.put("Cookie", cloudCookies);
+            headers.put("Referer", "https://drive.uc.cn/");
             HttpResult warmup = request("GET", "https://pc-api.uc.cn/1/clouddrive/file/sort?pr=UCBrowser&fr=pc&pdir_fid=0&_page=1&_size=50&_fetch_total=1&_fetch_sub_dirs=0&_sort=file_type:asc,updated_at:desc", headers, null);
             JSONObject verified = warmup.body.isEmpty() ? new JSONObject() : new JSONObject(warmup.body);
             if (warmup.code != 200 || verified.optInt("status", -1) != 200) {
-                throw new IllegalStateException("UC 扫码已确认，但网盘目录授权验证失败（HTTP " + warmup.code + "），未保存无效 Cookie");
+                return new JSONObject().put("state", "failed").put("message", "UC 扫码已确认，但官方目录登录校验失败（HTTP " + warmup.code + "），未保存 Cookie，请刷新二维码重试");
             }
-            return saveCookie(id, session, mergeCookies(cloudCookies, warmup.cookies), "UC 网盘登录成功，Cookie 已自动保存");
+            return saveCookie(id, session, mergeCookies(loginCookies, warmup.cookies), "UC 网盘登录成功，Cookie 已自动保存");
         }
         int status = result.optInt("status");
         if (status == 50004002 || status == 50004003 || status == 50004004) return expired(id, "二维码已失效或登录已取消，请重新获取");
@@ -744,6 +750,23 @@ final class CloudProviderQrService {
      * This fixed response key is used by the current yun.139.com web client and is
      * deliberately different from the per-session AES key used to encrypt login requests.
      */
+    static String normalizeMobile139Token(String source, String sessionKey) throws Exception {
+        // Existing/manual credentials are already plaintext pipe-separated tokens.
+        if (source.contains("|")) return source;
+        try {
+            String decoded = decryptMobile139Token(source);
+            if (decoded.contains("|")) return decoded;
+        } catch (Exception ignored) { }
+        if (sessionKey != null && !sessionKey.isEmpty()) {
+            try {
+                Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+                cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(sessionKey.getBytes(StandardCharsets.UTF_8), "AES"));
+                String decoded = new String(cipher.doFinal(Base64.decode(source, Base64.DEFAULT)), StandardCharsets.UTF_8);
+                if (decoded.contains("|")) return decoded;
+            } catch (Exception ignored) { }
+        }
+        throw new IllegalStateException("移动扫码返回的 Token 未能转换为官方授权格式，请重新扫码；未保存无效 Token");
+    }
     private static String decryptMobile139Token(String source) throws Exception {
         byte[] packed = Base64.decode(source, Base64.DEFAULT);
         if (packed.length <= 16 || (packed.length - 16) % 16 != 0) {
