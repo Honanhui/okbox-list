@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# OKBOX-LIST interactive installer, version 0.2.
+# OKBOX-LIST interactive installer, version 0.3.
 run_action() (
-# OKBOX-LIST 0.2: single-container install/update; never delete user volumes.
+# OKBOX-LIST 0.3: single-container install/update; never delete user volumes.
 set -Eeuo pipefail
 umask 077
 
 action=install
-image=${OKBOX_IMAGE:-honamhui/okbox-list:0.2}
+image=${OKBOX_IMAGE:-honamhui/okbox-list:0.3}
 port=${OKBOX_PORT:-9978}
 volume=${OKBOX_DATA_VOLUME:-okbox-list-data}
 adopt=false
@@ -20,11 +20,11 @@ replacement=false
 fail() { printf '错误：%s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'HELP'
-OKBOX-LIST 0.2 安装工具（Linux，已安装 Docker）
+OKBOX-LIST 0.3 安装工具（Linux，已安装 Docker）
   bash okbox-list.sh [install|update|check|status|logs|start|restart|stop] [选项]
   --local-image           使用本机已构建/加载的镜像，不拉取
   --adopt                 接管现有 docker run 容器，保留 /data、环境和网络
-  --image IMAGE           默认 honamhui/okbox-list:0.2
+  --image IMAGE           默认 honamhui/okbox-list:0.3
   --port PORT             首次安装的外部端口，默认 9978
   --volume NAME           首次安装的数据卷，默认 okbox-list-data
 
@@ -164,7 +164,7 @@ if [[ -n $backup ]]; then
   printf '已保留旧容器：%s（停止状态，不要同时启动）。\n' "$backup"
   backup=
 fi
-printf 'OKBOX-LIST 0.2 部署成功。\n'
+printf 'OKBOX-LIST 0.3 部署成功。\n'
 docker port "$name" 9978/tcp 2>/dev/null || true
 printf '后台与 OKBOX 地址：http://服务器IP:%s\n' "$port"
 printf '数据挂载：%s\n' "$mount"
@@ -173,7 +173,7 @@ printf '数据挂载：%s\n' "$mount"
 menu() {
   local choice selected_port selected_volume
   while true; do
-    printf '\n========== OKBOX-LIST 0.2 ==========\n'
+    printf '\n========== OKBOX-LIST 0.3 ==========\n'
     printf '1. 安装服务\n2. 更新服务\n3. 配置与健康检查\n4. 查看日志\n5. 启动服务\n6. 重启服务\n7. 停止服务\n0. 退出\n'
     read -r -p '请选择 [0-7]：' choice || return 0
     case "$choice" in

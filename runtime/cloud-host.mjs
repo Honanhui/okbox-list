@@ -4,7 +4,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 
 export class CloudHost {
- constructor(dataDir){this.dataDir=dataDir;this.pending=new Map();}
+ constructor(dataDir,logger=()=>{}){this.dataDir=dataDir;this.pending=new Map();this.logger=logger;}
  start(){
   if(this.child)return;
   const root=path.join(import.meta.dirname,'cloud');
@@ -20,7 +20,7 @@ export class CloudHost {
   // Never print provider HTTP bodies or tokens from the worker.
   child.stderr.resume();
   const failed=()=>{if(this.child!==child)return;this.child=null;for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(Object.assign(new Error('网盘服务中断，请重试'),{statusCode:503}));}this.pending.clear();};
-  child.on('error',failed);child.on('exit',failed);
+  child.on('error',error=>{this.logger('网盘Worker启动失败',{status:503,code:error.code});failed();});child.on('exit',(code,signal)=>{this.logger('网盘Worker退出',{code,signal});failed();});
  }
  call(body){
   this.start();const rpcId=randomUUID();

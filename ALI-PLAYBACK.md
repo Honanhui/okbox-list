@@ -1,4 +1,4 @@
-# 阿里分享播放驱动（0.2）
+# 阿里分享播放驱动（0.3）
 
 复用本项目饭太硬CAT 的 AliCloud 与设备签名实现。运行模块为 runtime/ali-driver-bundle.mjs，参考源码保存在 runtime/ali-source。
 通过当前订阅的推送站点提交标准 https://www.alipan.com/s/... 分享链接，可由 Bridge 生成阿里原画与转码集数。原订阅已经返回 okbox 编码阿里集数时同样由 Bridge 接管；未暴露标准分享信息的私有源参数尚未支持。

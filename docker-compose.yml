@@ -2,7 +2,7 @@ name: okbox-list
 
 services:
   okbox-list:
-    image: ${OKBOX_IMAGE:-honamhui/okbox-list:0.2}
+    image: ${OKBOX_IMAGE:-honamhui/okbox-list:0.3}
     container_name: okbox-list
     restart: unless-stopped
     ports:

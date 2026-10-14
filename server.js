@@ -1,5 +1,8 @@
 import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
 import {retryDelay,refreshDue} from './runtime/subscription-retry.mjs';
+import {writeRequestError} from './runtime/http-error-response.mjs';
+import {createRuntimeLog,redact} from './runtime/runtime-log.mjs';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {isCatSetupSite} from './runtime/cat-source-policy.mjs';
 import {rewriteCatPosters} from './runtime/cat-posters.mjs';
 import {isDj92Site,dj92Request} from './runtime/dj92-adapter.mjs';
@@ -26,8 +29,10 @@ const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 9978);
 const HOST = process.env.HOST || "::";
 const CONFIG_PATH = path.resolve(process.env.CONFIG_PATH || path.join(ROOT, "data", "config.json"));
+const requestContext=new AsyncLocalStorage();
+const persistentLog=createRuntimeLog(path.join(path.dirname(CONFIG_PATH),'logs'));
 const CATALOG_CACHE_PATH = path.join(path.dirname(CONFIG_PATH), "catalog-cache.json");
-const cloudHost = new CloudHost(path.join(path.dirname(CONFIG_PATH), "cloud"));
+const cloudHost = new CloudHost(path.join(path.dirname(CONFIG_PATH), "cloud"),log);
 const aliPlayback=createAliPlayback({cacheFile:path.join(path.dirname(CONFIG_PATH),"ali-transfers.json"),credentials:()=>cloudHost.call({action:'credentials',provider:'aliyun'}),persist:values=>cloudHost.call({action:'ali-playback-persist',values:{refreshToken:values.refreshToken,access_token:values.accessToken,driveId:values.driveId}}),request:async (url,options)=>{const r=await remoteFetch(url,{...options,signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error('阿里接口 HTTP '+r.status);return {content:await r.text(),headers:r.headers};}});
 const catAccountSyncs=new Map(),catSyncStates=new Map();
 async function syncCatAccounts(runtimeBase){
@@ -51,7 +56,7 @@ function catAccountStatus(account){
 function withCatAccountStatus(result){return {...result,accounts:(result.accounts||[]).map(account=>({...account,catSync:catAccountStatus(account)}))};}
 
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
-const VERSION = "0.2";
+const VERSION = "0.3";
 const TVBOX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 const TVBOX_ACCEPT = "application/json, text/plain, */*";
 const TVBOX_HEADERS = { accept: TVBOX_ACCEPT, "accept-language": "zh-CN,zh;q=0.9", "user-agent": TVBOX_USER_AGENT };
@@ -83,10 +88,10 @@ let config = {
 };
 
 function log(message, details = {}) {
-  const item = { time: new Date().toISOString(), message, ...details };
+  const item = persistentLog.write({level:details.status>=400||/失败|中断/.test(message)?'error':'info',...requestContext.getStore(),message,...details});
   logs.push(item);
   if (logs.length > 300) logs.shift();
-  console.log(`[${item.time}] ${message}`, Object.keys(details).length ? details : "");
+  console.log(JSON.stringify(item));
 }
 
 function proxyStatus() {
@@ -437,10 +442,15 @@ function text(res, status, value, contentType = "text/plain; charset=utf-8") {
 function errorResponse(res, error) {
   const status = Number(error?.statusCode || 500);
   const message = error instanceof Error ? error.message : String(error);
-  log("request failed", { status, message });
+  if (res.destroyed || res.writableEnded) return;
+  if (res.headersSent) {
+    log("响应传输中断，已关闭当前连接", { message });
+  } else {
+    log("request failed", { status, message });
+  }
   // Android Bridge documents `error`; the management page also consumes
   // `message`, so expose both names for compatible diagnostics.
-  json(res, status, { code: status, error: message, message });
+  writeRequestError(res, status, message, json);
 }
 
 function createError(statusCode, message) {
@@ -457,7 +467,13 @@ async function readJsonBody(req) {
   }
   if (!body.trim()) return {};
   try {
-    return JSON.parse(body);
+    const parsed=JSON.parse(body);
+    const context=requestContext.getStore();
+    if(context&&parsed&&typeof parsed==='object'){
+      Object.assign(context,{action:parsed.action,siteKey:parsed.siteKey,source:tvboxSites.find(x=>x.key===parsed.siteKey)?.name,keyword:parsed.keyword,resourceId:parsed.action==='player'?crypto.createHash('sha256').update(String(parsed.id||'')).digest('hex').slice(0,16):parsed.id,flag:parsed.flag});
+      if(['/api/spider','/api/fallback'].includes(context.path))log('请求开始');
+    }
+    return parsed;
   } catch {
     throw createError(400, "JSON 格式错误");
   }
@@ -1208,7 +1224,11 @@ async function handler(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/api/state") return json(res, 200, publicConfig());
-  if (req.method === "GET" && pathname === "/api/logs") return json(res, 200, logs.slice(-100));
+  if (req.method === "GET" && (pathname === "/api/logs" || pathname === "/api/logs/export")) {
+    const entries=persistentLog.read({since:url.searchParams.get('since')||'',until:url.searchParams.get('until')||'',level:url.searchParams.get('level')||'',q:url.searchParams.get('q')||'',limit:pathname.endsWith('/export')?100000:url.searchParams.get('limit')||500});
+    if(pathname.endsWith('/export')){res.setHeader('content-disposition','attachment; filename="okbox-logs.jsonl"');return text(res,200,entries.map(x=>JSON.stringify(x)).join('\n'),'text/plain; charset=utf-8');}
+    return json(res,200,entries);
+  }
   if (req.method === "PUT" && pathname.startsWith("/api/config-url/")) {
     const id = decodeURIComponent(pathname.slice("/api/config-url/".length)).trim();
     if (!id) throw createError(400, "配置地址 ID 不能为空");
@@ -1277,8 +1297,20 @@ restoreCatalogCache();
 startCatalogRefresh();
 scheduleCatalogRefresh();
 const server = http.createServer((req, res) => {
-  handler(req, res).catch((error) => errorResponse(res, error));
+  const context={requestId:crypto.randomUUID(),method:req.method,path:new URL(req.url,'http://localhost').pathname};
+  requestContext.run(context,()=>{
+    const start=Date.now();let bytes=0,finished=false;
+    const originalWrite=res.write.bind(res),originalEnd=res.end.bind(res);
+    res.write=function(chunk,...args){if(chunk)bytes+=Buffer.isBuffer(chunk)?chunk.length:Buffer.byteLength(String(chunk));return originalWrite(chunk,...args);};
+    res.end=function(chunk,...args){if(chunk)bytes+=Buffer.isBuffer(chunk)?chunk.length:Buffer.byteLength(String(chunk));return originalEnd(chunk,...args);};
+    const record=(outcome)=>{if(['/api/logs','/api/logs/export','/api/health','/health','/api/subscriptions'].includes(context.path))return;log('请求完成',{...context,status:res.statusCode,range:req.headers.range||'',bytes,durationMs:Date.now()-start,outcome});};
+    res.once('finish',()=>{finished=true;record('completed');});
+    res.once('close',()=>{if(!finished)record('connection-closed');});
+    res.setHeader('x-request-id',context.requestId);
+    handler(req,res).catch(error=>errorResponse(res,error));
+  });
 });
+process.on('uncaughtExceptionMonitor',error=>log('进程未捕获异常',{status:500,message:error.message,stack:error.stack}));
 process.on("SIGTERM", () => { cloudHost.close(); server.close(() => process.exit(0)); });
 process.on("SIGINT", () => { cloudHost.close(); server.close(() => process.exit(0)); });
 server.listen(PORT, HOST, () => log("tvbox-lite started", { host: HOST, port: PORT, config: CONFIG_PATH }));

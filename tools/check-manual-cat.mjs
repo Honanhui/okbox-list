@@ -28,14 +28,18 @@ try{
  const bridgeBase='http://127.0.0.1:'+bridgePort;
  for(let i=0;i<80;i++){try{if((await fetch(bridgeBase+'/health')).ok)break;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}
  const call=async(body)=>{const response=await fetch(bridgeBase+'/api/subscriptions',{method:body?'POST':'GET',headers:{'content-type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:response.status,data:await response.json()};};
- assert.equal((await (await fetch(bridgeBase+'/health')).json()).version,'0.2');assert.equal((await call()).data.sources.length,0);
+ assert.equal((await (await fetch(bridgeBase+'/health')).json()).version,'0.3');assert.equal((await call()).data.sources.length,0);
  assert.equal((await call({action:'save',url:'http://example.com/config.json'})).status,400);
  for(const name of ['one','two']){assert.equal((await call({action:'save',id:name,name,url:url(name)})).status,200);for(let i=0;i<80;i++){const item=(await call()).data.sources.find(x=>x.id===name);if(item?.state==='ready')break;if(item?.error)throw Error(item.error);await new Promise(resolve=>setTimeout(resolve,100));}}
  for(const id of ['two','one']){assert.equal((await call({action:'select',id})).status,200);const sources=await (await fetch(bridgeBase+'/api/sources')).json();assert.equal(sources.sites.length,1);assert.equal(sources.sites[0].name,id);}
  const keys=await(await fetch(bridgeBase+'/api/sources')).json();
  const homeReply=await fetch(bridgeBase+'/api/spider',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'home',siteKey:keys.sites[0].key})});
  assert.equal(homeReply.status,200);assert.equal((await homeReply.json()).class[0].type_id,'movies');
+ const entries=await(await fetch(bridgeBase+'/api/logs')).json();
+ assert(entries.some(x=>x.requestId===homeReply.headers.get('x-request-id')&&x.action==='home'&&x.source==='one'));
+ const exported=await(await fetch(bridgeBase+'/api/logs/export?q='+encodeURIComponent(homeReply.headers.get('x-request-id')))).text();
+ assert(exported.includes('请求完成'));assert(!exported.includes('test:pass'));
  assert.equal((await fetch(bridgeBase+'/sub/all.json')).status,400);
  const warehouse=await (await fetch(bridgeBase+'/sub/one.json')).json();assert.equal(warehouse.sites.length,1);assert.equal(warehouse.sites[0].name,'one');
- console.log('PASS: arbitrary Cat URLs, Basic authentication, checksum, independent catalogues, switching, JSON rejection, empty installation, management API, version 0.2');
+ console.log('PASS: arbitrary Cat URLs, Basic authentication, checksum, independent catalogues, switching, JSON rejection, empty installation, management API, version 0.3');
 }finally{if(bridge){bridge.kill('SIGTERM');await new Promise(resolve=>bridge.once('exit',resolve));}child.kill('SIGTERM');await new Promise(resolve=>child.once('exit',resolve));await new Promise(resolve=>upstream.close(resolve));}

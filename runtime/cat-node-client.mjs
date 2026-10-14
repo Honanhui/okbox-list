@@ -21,6 +21,6 @@ export async function catNodeRequest(site,request,fetcher){
  endpoint.pathname=endpoint.pathname.replace(/\/$/,'')+'/'+action;
  const body={id:request.action==='category'?request.categoryId:request.id,page:request.page||1,wd:request.keyword||'',quick:request.quick!==false,flag:request.flag||'',filters:request.extend||{},extend:request.extend||{}};
  const response=await fetcher(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
- const data=await response.json();if(!response.ok)throw Object.assign(new Error(`Cat Node “${site.name}”${action}失败：${String(data.message||data.error||response.status).slice(0,180)}`),{statusCode:502});
+ const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{throw Object.assign(new Error(`Cat Node “${site.name}”${action}返回非完整JSON：HTTP ${response.status}，响应 ${Buffer.byteLength(raw)} 字节`),{statusCode:502});}if(!response.ok)throw Object.assign(new Error(`Cat Node “${site.name}”${action}失败：${String(data.message||data.error||response.status).slice(0,180)}`),{statusCode:502});
  return action==='play'?{...data,url:catMediaUrl(data.url||data.streamUrl||'',site.runtimeBase)}:data;
 }

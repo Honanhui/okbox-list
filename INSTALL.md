@@ -1,6 +1,6 @@
 # 两种安装方式
 
-版本：0.2，镜像：honamhui/okbox-list:0.2。
+版本：0.3，镜像：honamhui/okbox-list:0.3。
 
 ## Docker 启动
 
@@ -15,7 +15,7 @@
 ```yaml
 services:
   okbox-list:
-    image: honamhui/okbox-list:0.2
+    image: honamhui/okbox-list:0.3
     container_name: okbox-list
     restart: unless-stopped
     ports:
@@ -65,7 +65,7 @@ docker compose up -d
 
 停止使用 `docker compose down`。账号及订阅保存在 `okbox-list-data` 数据卷中，更新时保留该卷，不要使用 `docker compose down -v`。
 
-**发布状态：以上远程下载与自动拉取，需要先把配置文件上传到 GitHub，并把 `honamhui/okbox-list:0.2` 发布到 Docker Hub。本次已准备文件，尚未实际完成线上发布。**
+**发布状态：以上远程下载与自动拉取，需要先把配置文件上传到 GitHub，并把 `honamhui/okbox-list:0.3` 发布到 Docker Hub。本次已准备文件，尚未实际完成线上发布。**
 
 ## 方式二：一键安装与管理脚本
 
@@ -78,7 +78,7 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/Honanhui/okbox-list
 菜单：
 
 ```text
-========== OKBOX-LIST 0.2 ==========
+========== OKBOX-LIST 0.3 ==========
 1. 安装服务
 2. 更新服务
 3. 配置与健康检查
