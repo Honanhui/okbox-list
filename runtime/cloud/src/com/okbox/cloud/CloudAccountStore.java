@@ -447,6 +447,7 @@ public final class CloudAccountStore {
         add(items, new Provider("aliyun", "阿里云盘", "oauth-token", "0", 2, new String[]{"refreshToken", "openToken"}, "刷新令牌", "开放刷新令牌（可选）"));
         add(items, new Provider("quark", "夸克网盘", "cookie", "0", 10, new String[]{"cookie"}, "Cookie"));
         add(items, new Provider("uc", "UC 网盘", "cookie", "0", 8, new String[]{"cookie"}, "Cookie"));
+        add(items, new Provider("uctv", "UC TV 网盘", "token", "0", 2, new String[]{"token"}, "TV Token"));
         add(items, new Provider("pan115", "115 网盘", "cookie", "0", 2, new String[]{"cookie"}, "Cookie"));
         add(items, new Provider("pan123", "123 网盘", "password", "0", 1, new String[]{"username", "password"}, "账号", "密码"));
         add(items, new Provider("tianyi", "天翼云盘", "password", "-11", 1, new String[]{"username", "password"}, "账号", "密码"));

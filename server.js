@@ -3,6 +3,7 @@ import {retryDelay,refreshDue} from './runtime/subscription-retry.mjs';
 import {writeRequestError} from './runtime/http-error-response.mjs';
 import {createRuntimeLog,redact} from './runtime/runtime-log.mjs';
 import {AsyncLocalStorage} from 'node:async_hooks';
+import {ucCatCredentials} from './runtime/uc-tv-credentials.mjs';
 import {isCatSetupSite} from './runtime/cat-source-policy.mjs';
 import {rewriteCatPosters} from './runtime/cat-posters.mjs';
 import {isDj92Site,dj92Request} from './runtime/dj92-adapter.mjs';
@@ -16,6 +17,7 @@ import crypto from "node:crypto";
 import tls from "node:tls";
 
 import {probeMedia} from './runtime/media-probe.mjs';
+import {sourceVerificationPage} from './runtime/source-verification-page.mjs';
 import {fetchMediaUpstream,forwardMediaBody} from './runtime/media-forward.mjs';
 import {resolvePlayerPage,streamTsMedia} from './runtime/player-page.mjs';
 
@@ -38,7 +40,7 @@ const catAccountSyncs=new Map(),catSyncStates=new Map();
 async function syncCatAccounts(runtimeBase){
  if(!catNodeEnabled())return [];
  const bases=runtimeBase?[runtimeBase]:[...new Set(tvboxSites.map(site=>site.runtimeBase).filter(Boolean))];
- const results=[];for(const base of bases){if(!catAccountSyncs.has(base))catAccountSyncs.set(base,createCatAccountSync({baseUrl:base+'/',credentials:provider=>cloudHost.call({action:'credentials',provider}),fetcher:(...args)=>remoteFetch(...args)}));const state=await catAccountSyncs.get(base)();catSyncStates.set(base,state);results.push(...state);}return results;
+ const results=[];for(const base of bases){if(!catAccountSyncs.has(base))catAccountSyncs.set(base,createCatAccountSync({baseUrl:base+'/',credentials:provider=>provider==='uc'?ucCatCredentials(p=>cloudHost.call({action:'credentials',provider:p})):cloudHost.call({action:'credentials',provider}),fetcher:(...args)=>remoteFetch(...args)}));const state=await catAccountSyncs.get(base)();catSyncStates.set(base,state);results.push(...state);}return results;
 }
 
 function catAccountStatus(account){
@@ -848,6 +850,7 @@ function bridgeSource(site) {
     searchable: site.searchable ? 1 : 0,
     quickSearch: site.searchable ? 1 : 0,
     filterable: site.filterable ? 1 : 0,
+    verification:site.verification===true,
     runtime: site.runtime || "unknown",
     nodeCrawler: nodeCrawlerStatus(site),
     catAdapter: site.runtime==='cat-node',
@@ -896,6 +899,7 @@ async function bridgeTvboxSpider(req,request,site){
 
 async function bridgeSpider(req, request) {
   const action = String(request.action || "").trim();
+  if(['verification','verify'].includes(action))throw createError(400,'源站验证请使用管理接口');
   const remoteSite = tvboxSites.find((item) => item.key === String(request.siteKey || "").trim());
   if (remoteSite && !isCatSetupSite(remoteSite)) return bridgeTvboxSpider(req, request, remoteSite);
   throw createError(400, `不支持的 Bridge 操作：${action || "空操作"}`);
@@ -1179,6 +1183,12 @@ async function handler(req, res) {
   // service APIs so the client can use them directly.
   const publicApi = pathname === "/api/subscriptions" || pathname === "/api/sources" || pathname === "/api/spider" || pathname === "/api/fallback" || pathname === "/api/media" || pathname === "/api/media/info";
   if (pathname.startsWith("/api/") && !publicApi) requireAdmin(req);
+  if(pathname==='/api/source-verification'&&req.method==='POST'){
+    const body=await readJsonBody(req);if(!['verification','verify'].includes(body.action))throw createError(400,'未知源站验证操作');
+    const site=activeTvboxSites().find(s=>s.key===String(body.siteKey||''));if(!site||site.runtime!=='cat-node'||site.verification!==true)throw createError(400,'该源尚无人工验证接口');
+    return json(res,200,await catNodeRequest(site,{action:body.action,keyword:String(body.keyword||'').slice(0,200),code:String(body.code||'').slice(0,12)},remoteFetch));
+  }
+  if(pathname==='/source-verification'&&req.method==='GET')return text(res,200,sourceVerificationPage,'text/html; charset=utf-8');
   if(pathname==='/api/crawlers/status' && req.method==='GET')return json(res,200,{subscriptions:configStatuses,sites:tvboxSites.filter(site=>!isCatSetupSite(site)).map(site=>({key:site.key,name:site.name,api:site.api,configId:site.configId,...nodeCrawlerStatus(site)}))});
 
   if (pathname === "/api/cloud/accounts" && req.method === "GET") return json(res, 200, withCatAccountStatus(await cloudHost.call({action:"catalog"})));

@@ -64,6 +64,7 @@ final class CloudProviderQrService {
         Session session = switch (provider) {
             case "quark" -> startQuark(name);
             case "uc" -> startUc(name);
+            case "uctv" -> startUcTv(name);
             case "pan115" -> start115(name);
             case "pan123" -> start123(name);
             case "baidu" -> startBaidu(name);
@@ -87,6 +88,7 @@ final class CloudProviderQrService {
         return switch (session.provider) {
             case "quark" -> pollQuark(id, session);
             case "uc" -> pollUc(id, session);
+            case "uctv" -> pollUcTv(id, session);
             case "pan115" -> poll115(id, session);
             case "pan123" -> poll123(id, session);
             case "baidu" -> pollBaidu(id, session);
@@ -368,6 +370,21 @@ final class CloudProviderQrService {
         String qr = "https://su.uc.cn/1_n0ZCv?uc_param_str=dsdnfrpfbivesscpgimibtbmnijblauputogpintnwktprchmt&token="
                 + enc(token) + "&client_id=381&uc_biz_str=" + enc("S:custom|C:titlebar_fix");
         return session("uc", name, token, qr, "请使用 UC 网盘 App 扫码并确认登录", new JSONObject().put("cookies", mergeCookies(landing.cookies, initial.cookies)), false);
+    }
+
+    private static Session startUcTv(String name) throws Exception {
+        JSONObject r=CloudUcTv.authorize();String query=first(r,"query_token"),qr=first(r,"qr_data");
+        if(r.optInt("status",-1)!=0||query.isEmpty()||qr.isEmpty())throw new IllegalStateException("UC TV 没有返回有效二维码："+first(r,"error_info","message"));
+        return session("uctv",name,query,qr.startsWith("data:")?qr:"data:image/png;base64,"+qr,"请使用UC App扫码确认TV授权（Token由授权兑换服务获取）",new JSONObject(),true);
+    }
+    private static JSONObject pollUcTv(String id, Session session) throws Exception {
+        JSONObject r=CloudUcTv.code(session.token);String code=first(r,"code");
+        if(r.optInt("status",-1)!=0||code.isEmpty())return waiting(session,false,"等待UC App扫码确认TV授权");
+        JSONObject tokens=session.meta.optJSONObject("tvTokens");
+        if(tokens==null){tokens=CloudUcTv.exchange(code);tokens.put("token",tokens.optString("access_token")).put("device_id",CloudUcTv.DEVICE);session.meta.put("tvTokens",tokens);}
+        CloudUcTv.validate(tokens);
+        JSONObject saved=CloudAccountStore.save("","uctv",session.name,tokens);SESSIONS.remove(id);
+        return new JSONObject().put("state","complete").put("message","UC TV授权已保存，请点检查验证有效性").put("accounts",saved.optJSONArray("accounts"));
     }
 
     private static JSONObject pollUc(String id, Session session) throws Exception {

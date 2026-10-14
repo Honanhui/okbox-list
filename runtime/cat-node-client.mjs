@@ -17,9 +17,9 @@ export async function catNodeCatalog(fetcher,signal,subscriptionUrl){
 export function nodeCrawlerStatus(site){return {adapter:site.catKey||site.runtime,kind:'video',state:site.runtime==='cat-node'?'implemented':'pending',verified:false};}
 export async function catNodeRequest(site,request,fetcher){
  const endpoint=new URL(site.api);if(!base||endpoint.origin!==new URL(base).origin)throw new Error('Cat Node 服务地址不匹配');
- const action=request.action==='player'?'play':request.action||'home';if(!['init','home','category','search','detail','play'].includes(action))throw new Error('Cat Node 操作无效');
+ const action=request.action==='player'?'play':request.action||'home';if(!['init','home','category','search','detail','play','verification','verify'].includes(action))throw new Error('Cat Node 操作无效');
  endpoint.pathname=endpoint.pathname.replace(/\/$/,'')+'/'+action;
- const body={id:request.action==='category'?request.categoryId:request.id,page:request.page||1,wd:request.keyword||'',quick:request.quick!==false,flag:request.flag||'',filters:request.extend||{},extend:request.extend||{}};
+ const body={id:request.action==='category'?request.categoryId:request.id,page:request.page||1,wd:request.keyword||'',quick:request.quick!==false,flag:request.flag||'',filters:request.extend||{},extend:request.extend||{},...(['verification','verify'].includes(action)?{code:request.code}: {})};
  const response=await fetcher(endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)});
  const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{throw Object.assign(new Error(`Cat Node “${site.name}”${action}返回非完整JSON：HTTP ${response.status}，响应 ${Buffer.byteLength(raw)} 字节`),{statusCode:502});}if(!response.ok)throw Object.assign(new Error(`Cat Node “${site.name}”${action}失败：${String(data.message||data.error||response.status).slice(0,180)}`),{statusCode:502});
  return action==='play'?{...data,url:catMediaUrl(data.url||data.streamUrl||'',site.runtimeBase)}:data;

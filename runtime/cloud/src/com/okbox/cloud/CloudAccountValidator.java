@@ -30,6 +30,7 @@ public final class CloudAccountValidator {
             String message = switch (provider) {
                 case "aliyun" -> validateAliyun();
                 case "uc" -> validateUc(secret);
+                case "uctv" -> CloudUcTv.validate(secret);
                 case "quark" -> validateQuark(secret);
                 case "baidu" -> validateBaidu(secret);
                 case "mobile139" -> validateMobileAuthorization(account, secret);

@@ -6,6 +6,10 @@ try{
  const mobile=await host.call({action:'credentials',provider:'mobile139'});assert.equal(mobile.account,'synthetic-account');assert.equal(mobile.auth_token,'synthetic-auth');assert.equal(mobile.userDomainId,'synthetic-domain');assert.equal(mobile.loginData.token,'synthetic-auth');
  await host.call({action:'save',provider:'thunder',values:{access_token:'synthetic-access',refresh_token:'synthetic-refresh',device_id:'synthetic-device',oauth_client_id:'synthetic-client',expires_in:7200,user_id:'synthetic-user',token_type:'Bearer'}});
  const thunder=await host.call({action:'credentials',provider:'thunder'});assert.equal(thunder.expires_in,7200);assert.equal(thunder.token_type,'Bearer');assert.equal(thunder.user_id,'synthetic-user');
+ await host.call({action:'save',provider:'uc',values:{cookie:'synthetic-web-cookie'}});
+ await host.call({action:'save',provider:'uctv',values:{token:'synthetic-tv-token',refresh_token:'synthetic-tv-refresh'}});
+ assert.equal((await host.call({action:'credentials',provider:'uc'})).cookie,'synthetic-web-cookie');
+ assert.equal((await host.call({action:'credentials',provider:'uctv'})).token,'synthetic-tv-token');
 
  console.log('PASS: encrypted Mobile session and Thunder OAuth metadata survive account storage');
 }finally{host.close();}
