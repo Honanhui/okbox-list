@@ -1,3 +1,4 @@
+import {readAliApiResponse} from './runtime/ali-api-response.mjs';
 import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
 import {retryDelay,refreshDue} from './runtime/subscription-retry.mjs';
 import {writeRequestError} from './runtime/http-error-response.mjs';
@@ -35,7 +36,7 @@ const requestContext=new AsyncLocalStorage();
 const persistentLog=createRuntimeLog(path.join(path.dirname(CONFIG_PATH),'logs'));
 const CATALOG_CACHE_PATH = path.join(path.dirname(CONFIG_PATH), "catalog-cache.json");
 const cloudHost = new CloudHost(path.join(path.dirname(CONFIG_PATH), "cloud"),log);
-const aliPlayback=createAliPlayback({cacheFile:path.join(path.dirname(CONFIG_PATH),"ali-transfers.json"),credentials:()=>cloudHost.call({action:'credentials',provider:'aliyun'}),persist:values=>cloudHost.call({action:'ali-playback-persist',values:{refreshToken:values.refreshToken,access_token:values.accessToken,driveId:values.driveId}}),request:async (url,options)=>{const r=await remoteFetch(url,{...options,signal:AbortSignal.timeout(20000)});if(!r.ok)throw Error('阿里接口 HTTP '+r.status);return {content:await r.text(),headers:r.headers};}});
+const aliPlayback=createAliPlayback({cacheFile:path.join(path.dirname(CONFIG_PATH),"ali-transfers.json"),credentials:()=>cloudHost.call({action:'credentials',provider:'aliyun'}),persist:values=>cloudHost.call({action:'ali-playback-persist',values:{refreshToken:values.refreshToken,access_token:values.accessToken,driveId:values.driveId}}),request:async (url,options)=>{const r=await remoteFetch(url,{...options,signal:AbortSignal.timeout(20000)});return readAliApiResponse(r);}});
 const catAccountSyncs=new Map(),catSyncStates=new Map();
 async function syncCatAccounts(runtimeBase){
  if(!catNodeEnabled())return [];
@@ -1324,3 +1325,4 @@ process.on('uncaughtExceptionMonitor',error=>log('进程未捕获异常',{status
 process.on("SIGTERM", () => { cloudHost.close(); server.close(() => process.exit(0)); });
 process.on("SIGINT", () => { cloudHost.close(); server.close(() => process.exit(0)); });
 server.listen(PORT, HOST, () => log("tvbox-lite started", { host: HOST, port: PORT, config: CONFIG_PATH }));
+

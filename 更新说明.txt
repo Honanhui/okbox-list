@@ -1,0 +1,8 @@
+本包是 TVBOX-LIST 源码更新包，不是账号数据备份，也不是已经部署的服务。
+包含 UC TV 登录模块、原有网盘接口、媒体转发修复，以及奥特人工验证码管理页面。
+先备份原源码。将本包内容合并到已有项目根目录（包含 Dockerfile 的目录），不要覆盖 .env、cat-runtime.env、data 或账号数据卷。
+使用现有部署配置重建：docker compose build，然后 docker compose up -d。若使用独立 compose 文件，请沿用原来的 -f 参数。
+验证码管理页面：/source-verification；需要支持 verification 接口的新版 CAT 源。启用管理 Token 时在页面填写管理 Token。
+新增验证码操作使用管理接口，不改变正常 home/category/detail/play/search 接口。
+媒体转发测试和服务端语法检查已通过。本包尚未在 192.168.1.8 上部署验证；请勿视作线上更新完成。
+补充：阿里API限流现在保留HTTP429状态并提示稍后重试，不自动重试。此修复尚未部署到服务器。

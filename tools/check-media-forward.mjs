@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {Writable} from 'node:stream';
-import {fetchMediaUpstream,forwardMediaBody} from '../runtime/media-forward.mjs';
+import {fetchMediaUpstream,forwardMediaBody,assertMediaTarget} from '../runtime/media-forward.mjs';
+assert.throws(()=>assertMediaTarget('http://127.0.0.1:9978/cloud/credential/uc'),/凭据/);assert.throws(()=>assertMediaTarget('http://example.test/%63loud/tokenm'),/凭据/);assert.doesNotThrow(()=>assertMediaTarget('https://media.example/cloud/video.mp4'));
+let fetched=false;await assert.rejects(()=>fetchMediaUpstream(async()=>{fetched=true;},'http://localhost:9978/cloud/credential/uc',{},new EventEmitter()),/凭据/);assert.equal(fetched,false);
+await assert.rejects(()=>fetchMediaUpstream(async()=>({url:'http://localhost:9978/cloud/tokenm'}),'https://media.example/redirect',{},new EventEmitter()),/凭据/);
 const res=new EventEmitter();let signal;
 const response=await fetchMediaUpstream(async(_url,options)=>{signal=options.signal;return new Response('video');},'https://media.example/file',{},res,10);
 await new Promise(r=>setTimeout(r,25));assert.equal(signal.aborted,false,'movie body must survive header deadline');res.emit('close');assert.equal(signal.aborted,true,'seeking/disconnect must cancel old download');
