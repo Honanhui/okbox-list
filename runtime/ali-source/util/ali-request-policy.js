@@ -1,0 +1,7 @@
+export function createAliRequestPolicy(request,{now=Date.now,wait=ms=>new Promise(r=>setTimeout(r,ms)),interval=250}={}){
+ let queue=Promise.resolve(),next=0,cooldown=0,strikes=0;const values=new Map();
+ function limited(){const seconds=Math.max(1,Math.ceil((cooldown-now())/1000));return Object.assign(Error('阿里接口暂时限流，请在'+seconds+'秒后重试'),{statusCode:429,retryAfterSeconds:seconds});}
+ function send(url,options){const task=queue.then(async()=>{if(now()<cooldown)throw limited();const pause=next-now();if(pause>0)await wait(pause);if(now()<cooldown)throw limited();next=now()+interval;try{const response=await request(url,options);strikes=0;return response;}catch(e){if(e.statusCode===429){strikes++;cooldown=now()+1000*Math.max(Number(e.retryAfterSeconds)||0,Math.min(60,5*2**Math.min(strikes-1,4)));throw limited();}throw e;}});queue=task.catch(()=>{});return task;}
+ function cached(key,load,ttl=60000){const old=values.get(key);if(old&&(old.pending||old.expires>now()))return old.promise;for(const[k,v]of values)if(!v.pending&&v.expires<=now())values.delete(k);if(values.size>=32){const first=[...values].find(([,v])=>!v.pending);if(first)values.delete(first[0]);else throw Error('阿里请求处理中，请稍后重试');}const item={pending:true,expires:0};item.promise=Promise.resolve().then(load).then(value=>{item.pending=false;item.expires=now()+ttl;return value;},error=>{values.delete(key);throw error;});values.set(key,item);return item.promise;}
+ return {send,cached};
+}

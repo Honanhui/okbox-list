@@ -15,11 +15,12 @@ function decodeEpisode(value) {
 function createRequest() {
   const cookies = /* @__PURE__ */ new Map();
   return async function request(value, options = {}) {
-    let target = httpUrl(value);
+    let target = httpUrl(value), method = options.method || "GET", body = options.body;
     const original = new URL(target).origin;
     for (let hop = 0; hop < 5; hop++) {
       const url = new URL(target), jar = cookies.get(url.origin) || /* @__PURE__ */ new Map();
       const headers = { "user-agent": UA, ...Object.fromEntries(Object.entries(options.headers || {}).map(([k, v]) => [k.toLowerCase(), v])) };
+      if (body === void 0 && method === "GET") delete headers["content-type"];
       if (jar.size) {
         const merged = new Map(String(headers.cookie || "").split(";").map((x) => x.trim()).filter(Boolean).map((x) => {
           const i = x.indexOf("=");
@@ -34,7 +35,7 @@ function createRequest() {
       }
       let response;
       try {
-        response = await fetch(target, { ...options, headers, redirect: "manual", signal: options.signal || AbortSignal.timeout(15e3) });
+        response = await fetch(target, { ...options, method, body, headers, redirect: "manual", signal: options.signal || AbortSignal.timeout(15e3) });
       } catch (error) {
         const code = error.cause?.code;
         if (["CERT_HAS_EXPIRED", "ERR_TLS_CERT_ALTNAME_INVALID", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "DEPTH_ZERO_SELF_SIGNED_CERT"].includes(code)) throw new Error("\u6E90\u7AD9 HTTPS \u8BC1\u4E66\u9A8C\u8BC1\u5931\u8D25\uFF1A" + code);
@@ -46,6 +47,10 @@ function createRequest() {
       }
       cookies.set(url.origin, jar);
       if ([301, 302, 303, 307, 308].includes(response.status)) {
+        if (response.status === 303 && method !== "HEAD" || [301, 302].includes(response.status) && method === "POST") {
+          method = "GET";
+          body = void 0;
+        }
         target = httpUrl(response.headers.get("location"), target);
         await response.body?.cancel();
         continue;
@@ -57,8 +62,18 @@ function createRequest() {
         if (size > 8 * 1024 * 1024) throw new Error("\u6E90\u7AD9\u54CD\u5E94\u8FC7\u5927");
         chunks.push(chunk);
       }
-      if (!response.ok) throw new Error("\u6E90\u7AD9 HTTP " + response.status);
-      return { content: Buffer.concat(chunks).toString("utf8"), url: response.url, headers: response.headers };
+      if (!response.ok) {
+        const error = new Error("\u6E90\u7AD9 HTTP " + response.status);
+        error.statusCode = response.status;
+        if (response.status === 429) {
+          const retry = response.headers.get("retry-after");
+          const seconds = Number(retry) || Math.ceil((Date.parse(retry) - Date.now()) / 1e3);
+          if (Number.isFinite(seconds) && seconds > 0) error.retryAfterSeconds = seconds;
+        }
+        throw error;
+      }
+      const bytes = Buffer.concat(chunks);
+      return { content: bytes.toString("utf8"), ...options.binary ? { bytes } : {}, url: response.url, headers: response.headers };
     }
     throw new Error("\u6E90\u7AD9\u91CD\u5B9A\u5411\u6B21\u6570\u8FC7\u591A");
   };
@@ -2417,6 +2432,62 @@ function createAliDevice(userId) {
   return { deviceId, publicKey: Buffer.from(secp256k1.getPublicKey(privateKey, false)).toString("hex"), signature: signature.toCompactHex() + signature.recovery.toString(16).padStart(2, "0") };
 }
 
+// tvbox-lite/runtime/ali-source/util/ali-request-policy.js
+function createAliRequestPolicy(request, { now = Date.now, wait = (ms) => new Promise((r) => setTimeout(r, ms)), interval = 250 } = {}) {
+  let queue = Promise.resolve(), next = 0, cooldown = 0, strikes = 0;
+  const values = /* @__PURE__ */ new Map();
+  function limited() {
+    const seconds = Math.max(1, Math.ceil((cooldown - now()) / 1e3));
+    return Object.assign(Error("\u963F\u91CC\u63A5\u53E3\u6682\u65F6\u9650\u6D41\uFF0C\u8BF7\u5728" + seconds + "\u79D2\u540E\u91CD\u8BD5"), { statusCode: 429, retryAfterSeconds: seconds });
+  }
+  function send(url, options) {
+    const task = queue.then(async () => {
+      if (now() < cooldown) throw limited();
+      const pause = next - now();
+      if (pause > 0) await wait(pause);
+      if (now() < cooldown) throw limited();
+      next = now() + interval;
+      try {
+        const response = await request(url, options);
+        strikes = 0;
+        return response;
+      } catch (e) {
+        if (e.statusCode === 429) {
+          strikes++;
+          cooldown = now() + 1e3 * Math.max(Number(e.retryAfterSeconds) || 0, Math.min(60, 5 * 2 ** Math.min(strikes - 1, 4)));
+          throw limited();
+        }
+        throw e;
+      }
+    });
+    queue = task.catch(() => {
+    });
+    return task;
+  }
+  function cached(key, load, ttl = 6e4) {
+    const old = values.get(key);
+    if (old && (old.pending || old.expires > now())) return old.promise;
+    for (const [k, v] of values) if (!v.pending && v.expires <= now()) values.delete(k);
+    if (values.size >= 32) {
+      const first = [...values].find(([, v]) => !v.pending);
+      if (first) values.delete(first[0]);
+      else throw Error("\u963F\u91CC\u8BF7\u6C42\u5904\u7406\u4E2D\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+    }
+    const item = { pending: true, expires: 0 };
+    item.promise = Promise.resolve().then(load).then((value) => {
+      item.pending = false;
+      item.expires = now() + ttl;
+      return value;
+    }, (error) => {
+      values.delete(key);
+      throw error;
+    });
+    values.set(key, item);
+    return item.promise;
+  }
+  return { send, cached };
+}
+
 // tvbox-lite/runtime/ali-source/cloud/cloud-ali-baidu.js
 var AliCloud = class {
   constructor(credentials = {}, options = {}) {
@@ -2425,7 +2496,8 @@ var AliCloud = class {
     this.host = options.host || "https://api.aliyundrive.com/";
     this.openHost = options.openHost || "https://openapi.alipan.com/";
     this.authHost = options.authHost || "https://auth.aliyundrive.com/";
-    this.request = options.request || createRequest();
+    this.policy = createAliRequestPolicy(options.request || createRequest(), options.requestPolicy);
+    this.request = this.policy.send;
     this.persist = options.persist || (() => {
     });
     this.tokens = /* @__PURE__ */ new Map();
@@ -2464,7 +2536,10 @@ var AliCloud = class {
       this.refreshing.delete(field);
     }
   }
-  async token(share) {
+  token(share) {
+    return this.policy.cached("token:" + share.id + "_" + share.password, () => this.tokenFresh(share), 3e5);
+  }
+  async tokenFresh(share) {
     const key = share.id + "_" + share.password, cached = this.tokens.get(key);
     if (cached && Date.now() - cached.time < 5 * 6e4) return cached.token;
     const data = await this.post("v2/share_link/get_share_token", { share_id: share.id, share_pwd: share.password || "" });
@@ -2472,7 +2547,10 @@ var AliCloud = class {
     this.tokens.set(key, { token: data.share_token, time: Date.now() });
     return data.share_token;
   }
-  async list(share) {
+  list(share) {
+    return this.policy.cached("list:" + share.id + "_" + share.password + "_" + (share.folder || "root"), () => this.listFresh(share), 6e4);
+  }
+  async listFresh(share) {
     const token = await this.token(share), queue = [share.folder || "root"], seen = /* @__PURE__ */ new Set(), files = [], subtitles = [];
     let calls = 0;
     while (queue.length) {
@@ -2501,7 +2579,10 @@ var AliCloud = class {
     files.sort((a, b) => a.name.localeCompare(b.name, "zh-CN", { numeric: true }));
     return { name: "\u963F\u91CC\u5206\u4EAB", files, subtitles };
   }
-  async drive() {
+  drive() {
+    return this.policy.cached("drive", () => this.driveFresh(), 6e4);
+  }
+  async driveFresh() {
     if (this.credentials.driveId) return this.credentials.driveId;
     const token = await this.authorization(), data = await this.post("adrive/v2/user/get", {}, { Authorization: "Bearer " + token });
     const id = data.resource_drive_id || data.default_drive_id;
@@ -2556,7 +2637,10 @@ var AliCloud = class {
       throw e;
     }
   }
-  async play(share, file, quality = "original") {
+  play(share, file, quality = "original") {
+    return this.policy.cached("play:" + share.id + "_" + file.id + "_" + quality, () => this.playFresh(share, file, quality), 6e4);
+  }
+  async playFresh(share, file, quality = "original") {
     const id = await this.transfer(share, file), drive = await this.drive(), open = !!(this.credentials.openRefreshToken || this.credentials.openAccessToken), token = await this.authorization(open), headers = { Authorization: "Bearer " + token }, base = open ? this.openHost : this.host;
     if (quality === "original") {
       if (!open) Object.assign(headers, await this.deviceHeaders(), { Authorization: "Bearer " + token });

@@ -981,6 +981,7 @@ function subscriptionConfig(req, requestedId) {
     // OKBOX uses this flag to exclude incompatible cached sites.
     dockerExecutable: isDockerExecutableTvboxSite(site),
     searchable: isDockerExecutableTvboxSite(site) && site.searchable ? 1 : 0,
+    verification: site.verification === true,
     quickSearch: isDockerExecutableTvboxSite(site) && site.searchable ? 1 : 0,
     filterable: site.filterable ? 1 : 0
   }));
