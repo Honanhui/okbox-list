@@ -39,3 +39,7 @@ test('errors explain permissions without exposing token; size is bounded',async(
  for(const status of [401,403,404])await assert.rejects(downloadGithub(address,128,async()=>new Response('',{status})),error=>!error.message.includes('TEST_ONLY')&&/GitHub/.test(error.message));
  await assert.rejects(downloadGithub(address,2,async()=>new Response('oversize')),/过大/);
 });
+test('interrupted response body reports received bytes without credential details',async()=>{
+ const body={async *[Symbol.asyncIterator](){yield Buffer.from('partial');throw Error('sensitive transport message');}};
+ await assert.rejects(downloadGithub(address.replace('.md5',''),1024,async()=>({ok:true,status:200,body})),error=>/90秒上限，已接收7字节/.test(error.message)&&!error.message.includes('sensitive'));
+});

@@ -10,7 +10,8 @@ export function catMediaUrl(value,runtimeBase=base){
 }
 export async function catNodeCatalog(fetcher,signal,subscriptionUrl){
  if(!isCatNodeSubscription(subscriptionUrl))throw new Error('只支持 Cat Node .js 或 .js.md5 订阅，不支持 JSON 订阅');
- const response=await fetcher(base+'/catalog',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:subscriptionUrl}),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(100000)]):AbortSignal.timeout(100000)});
+ const catalogTimeout=String(subscriptionUrl).startsWith('github://')?180000:100000;
+ const response=await fetcher(base+'/catalog',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url:subscriptionUrl}),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(catalogTimeout)]):AbortSignal.timeout(catalogTimeout)});
  const result=await response.json();if(!response.ok)throw new Error(result.error||'Cat 订阅抓取失败');
  const root=result.root,runtimeBase=base+'/r/'+result.id;if(!/^[a-f0-9]{24}$/.test(result.id)||!Array.isArray(root.video?.sites))throw new Error('Cat Node 目录格式无效');
  return root.video.sites.filter(site=>!isCatSetupSite({...site,runtime:'cat-node'})).map(site=>{const url=new URL(site.api,'http://localhost');if(!/^\/spider\/[^/]+\/\d+\/?$/.test(url.pathname))throw new Error('Cat Node 站点路径无效');return {...site,api:runtimeBase+url.pathname,runtimeBase,runtime:'cat-node',timeout:Math.min(120,Math.max(25,Number(site.timeout)||25)),sourceUrl:subscriptionUrl};});
