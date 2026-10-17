@@ -38,6 +38,8 @@ const CATALOG_CACHE_PATH = path.join(path.dirname(CONFIG_PATH), "catalog-cache.j
 const cloudHost = new CloudHost(path.join(path.dirname(CONFIG_PATH), "cloud"),log);
 const aliPlayback=createAliPlayback({cacheFile:path.join(path.dirname(CONFIG_PATH),"ali-transfers.json"),credentials:()=>cloudHost.call({action:'credentials',provider:'aliyun'}),persist:values=>cloudHost.call({action:'ali-playback-persist',values:{refreshToken:values.refreshToken,access_token:values.accessToken,driveId:values.driveId}}),request:async (url,options)=>{const r=await remoteFetch(url,{...options,signal:AbortSignal.timeout(20000)});return readAliApiResponse(r);}});
 const catAccountSyncs=new Map(),catSyncStates=new Map();
+let pendingAccountSync=Promise.resolve();
+function scheduleAccountSync(){pendingAccountSync=pendingAccountSync.catch(()=>{}).then(()=>syncCatAccounts()).catch(error=>log('账号后台同步失败',{status:502,code:error.code}));}
 async function syncCatAccounts(runtimeBase){
  if(!catNodeEnabled())return [];
  const bases=runtimeBase?[runtimeBase]:[...new Set(tvboxSites.map(site=>site.runtimeBase).filter(Boolean))];
@@ -879,7 +881,7 @@ function getMediaToken(token) {
 }
 
 async function bridgeTvboxRuntimePlayer(req,request,site){
- if(!isDj92Site(site)&&!aliEpisode(request.id))await syncCatAccounts(site.runtimeBase);
+ if(!isDj92Site(site)&&!aliEpisode(request.id)){await pendingAccountSync;await syncCatAccounts(site.runtimeBase);}
  let value=aliEpisode(request.id)?await aliPlayback.play(request.id):isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);
  if(Number(value?.parse)||Number(value?.jx))value=await resolvePlayerPage(value,remoteFetch,normalizeHttpHeaders(value.header||value.headers));
  const url=String(value?.url||value?.streamUrl||'').trim();if(!/^https?:\/\//i.test(url))throw createError(502,'Cat Node 没有返回 HTTP 播放地址');
@@ -1200,7 +1202,7 @@ async function handler(req, res) {
     const allowed = new Set(["save","delete","enable","disable","login","validate","auth-start","auth-poll","auth-cancel"]);
     if (!allowed.has(body.action)) throw createError(400, "未知网盘账号操作");
     const result=await cloudHost.call(body);
-    if(catNodeEnabled() && (['save','delete','enable','disable','login','validate'].includes(body.action)||body.action==='auth-poll'&&result.state==='complete'))await syncCatAccounts();
+    if(catNodeEnabled() && (['save','delete','enable','disable','login','validate'].includes(body.action)||body.action==='auth-poll'&&result.state==='complete'))scheduleAccountSync();
     return json(res, 200, result.accounts?withCatAccountStatus(result):result);
   }
   if (pathname === "/api/cloud/inspect" && req.method === "POST") return json(res, 200, await cloudHost.call({...await readJsonBody(req),action:"inspect"}));
