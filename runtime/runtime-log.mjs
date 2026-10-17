@@ -1,3 +1,4 @@
+import {maskGithubSecrets} from './github-subscription.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 export function beijingTime(value){return new Date(new Date(value).getTime()+8*3600000).toISOString().replace('Z','+08:00');}
@@ -5,7 +6,7 @@ export function redact(value,key='') {
  if(/password|cookie|token|secret|authorization|qrImage|sessionId/i.test(key))return '[已隐藏]';
  if(value&&typeof value==='object')return Array.isArray(value)?value.map(v=>redact(v)):Object.fromEntries(Object.entries(value).map(([k,v])=>[k,redact(v,k)]));
  if(typeof value!=='string')return value;
- return value.replace(/("[^"\n]*(?:cookie|authorization|password|token|secret)[^"\n]*"\s*:\s*)"(?:\\.|[^"\\])*"/gi,'$1"[已隐藏]"').replace(/(?:^|\n)\s*(cookie|authorization)\s*:[^\r\n]*/gi,'$1: [已隐藏]').replace(/https?:\/\/[^\s"'<>]+/g,s=>{try{const u=new URL(s);u.username='';u.password='';u.search=u.search?'?[已隐藏参数]':'';u.hash='';return u.href;}catch{return '[地址]';}}).replace(/(cookie|authorization|password|token|secret)\s*[:=]\s*[^\s,;}]+/gi,'$1=[已隐藏]').slice(0,6000);
+ return maskGithubSecrets(value).replace(/("[^"\n]*(?:cookie|authorization|password|token|secret)[^"\n]*"\s*:\s*)"(?:\\.|[^"\\])*"/gi,'$1"[已隐藏]"').replace(/(?:^|\n)\s*(cookie|authorization)\s*:[^\r\n]*/gi,'$1: [已隐藏]').replace(/https?:\/\/[^\s"'<>]+/g,s=>{try{const u=new URL(s);u.username='';u.password='';u.search=u.search?'?[已隐藏参数]':'';u.hash='';return u.href;}catch{return '[地址]';}}).replace(/(cookie|authorization|password|token|secret)\s*[:=]\s*[^\s,;}]+/gi,'$1=[已隐藏]').slice(0,6000);
 }
 export function createRuntimeLog(dir,role='server',{maxBytes=5*1024*1024,archives=3}={}){
  fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,role+'.jsonl');let warned=false;

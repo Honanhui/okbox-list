@@ -1,7 +1,8 @@
+import {githubSubscription} from './github-subscription.mjs';
 import {isCatSetupSite} from './cat-source-policy.mjs';
 const base=(process.env.CAT_NODE_URL||'').replace(/\/+$/,'');
 export function catNodeEnabled(){return Boolean(base);}
-export function isCatNodeSubscription(value){try{const url=new URL(value);return ['http:','https:'].includes(url.protocol)&&/\.js(?:\.md5)?$/.test(url.pathname);}catch{return false;}}
+export function isCatNodeSubscription(value){try{const url=new URL(value);if(url.protocol==='github:'){githubSubscription(value);return true;}return ['http:','https:'].includes(url.protocol)&&/\.js(?:\.md5)?$/.test(url.pathname);}catch{return false;}}
 export function catMediaUrl(value,runtimeBase=base){
  if(!value||!runtimeBase)return value;if(!/^https?:\/\//i.test(value))return runtimeBase+'/'+value.replace(/^\//,'');let url;try{url=new URL(value);}catch{return value;}
  if(['127.0.0.1','localhost','0.0.0.0'].includes(url.hostname))return runtimeBase+url.pathname+url.search;

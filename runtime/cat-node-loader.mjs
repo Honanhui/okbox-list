@@ -1,3 +1,4 @@
+import {githubSubscription,downloadGithub} from './github-subscription.mjs';
 import {instrumentCat} from './cat-instrument.mjs';
 import {catDownloadError} from './cat-download-errors.mjs';
 import fs from 'node:fs/promises';
@@ -10,8 +11,9 @@ const runtimeLog=createRuntimeLog(process.env.LOG_DIR||path.join(path.dirname(pr
 function capture(stream,runtime,channel){let pending='',overflow=false;stream.setEncoding('utf8');stream.on('data',chunk=>{pending+=chunk;let i;while((i=pending.indexOf('\n'))>=0){const line=pending.slice(0,i);pending=pending.slice(i+1);if(!overflow&&line.trim())runtimeLog.write({level:channel==='stderr'?'error':'info',runtimeId:runtime.id,message:/cookie|token|authorization|password|secret|__pus/i.test(line)?'[包含凭据字段的子进程输出已隐藏]':line});overflow=false;}if(pending.length>16000){pending='';overflow=true;}});}
 const dir=process.env.CAT_DATA_DIR||'/cat-data',port=Number(process.env.PORT||9988),runtimes=new Map();let stopping=false,nextPort=10000;
 await fs.mkdir(dir,{recursive:true});
-function sourceUrl(value){const url=new URL(value);if(!['http:','https:'].includes(url.protocol)||!/\.js(?:\.md5)?$/.test(url.pathname))throw new Error('只支持 Cat Node .js 或 .js.md5 订阅地址');return url;}
+function sourceUrl(value){const url=new URL(value);if(url.protocol==='github:'){githubSubscription(value);return url;}if(!['http:','https:'].includes(url.protocol)||!/\.js(?:\.md5)?$/.test(url.pathname))throw new Error('只支持 Cat Node .js 或 .js.md5 订阅地址');return url;}
 async function download(value,limit){
+ if(new URL(value).protocol==='github:')return downloadGithub(value,limit);
  const original=new URL(value),auth=original.username?'Basic '+Buffer.from(decodeURIComponent(original.username)+':'+decodeURIComponent(original.password)).toString('base64'):'';
  original.username='';original.password='';let target=original;
  for(let hop=0;hop<5;hop++){

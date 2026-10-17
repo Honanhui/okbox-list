@@ -1,3 +1,4 @@
+import {maskGithubSecrets} from './runtime/github-subscription.mjs';
 import {readAliApiResponse} from './runtime/ali-api-response.mjs';
 import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
 import {retryDelay,refreshDue} from './runtime/subscription-retry.mjs';
@@ -429,7 +430,7 @@ async function dnsFallbackFetch(target, options, originalError, preferredAddress
 }
 
 function json(res, status, value, headers = {}) {
-  const body = JSON.stringify(value);
+  const body = JSON.stringify(value,(_key,item)=>typeof item==='string'?maskGithubSecrets(item):item);
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(body),
@@ -487,7 +488,7 @@ async function readJsonBody(req) {
 function normalizeConfig(value) {
   const configUrls = Array.isArray(value?.configUrls) ? value.configUrls.map((item, index) => {
     const sourceUrl = typeof item === "string" ? item.trim() : String(item?.url || "").trim();
-    if (!/^https?:\/\/[^\s]+$/i.test(sourceUrl)) throw createError(400, "订阅地址无效，请填写 HTTP/HTTPS 地址");
+    if (!isCatNodeSubscription(sourceUrl)) throw createError(400, "订阅地址无效，请填写 HTTP/HTTPS 或 github:// 的 Cat JS 订阅地址");
     const id = String(typeof item === "string" ? index : item?.id ?? index);
     let defaultName = id;
     try { defaultName = new URL(sourceUrl).hostname || id; } catch {}
@@ -543,6 +544,7 @@ async function subscriptionAction(body) {
     return { ...subscriptionCatalog(), accepted: true };
   }
   if (body.action === "save") {
+    const previous=config.configUrls.find(item=>item.id===id);if(previous && body.url===maskGithubSecrets(previous.url))body.url=previous.url;
     if(!isCatNodeSubscription(String(body.url||'')))throw createError(400,'只支持 Cat Node .js 或 .js.md5 订阅，不支持 JSON 订阅');
     const nextId = id || crypto.randomUUID();
     const entries = config.configUrls.filter(item => item.id !== nextId);

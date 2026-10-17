@@ -238,3 +238,6 @@ Cat 内部服务为 `127.0.0.1:9988`，无需对外开放。公网部署应配�
 
 
 
+
+
+GitHub 私有订阅：支持 github://Token@github.com/账号/仓库/文件.js.md5，可用 ?ref=main 指定分支。详细步骤见 [GitHub 私有订阅与 Token 教程](GITHUB-PRIVATE-SUBSCRIPTION.md)。
