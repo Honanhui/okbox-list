@@ -21,6 +21,8 @@ import tls from "node:tls";
 import {probeMedia} from './runtime/media-probe.mjs';
 import {sourceVerificationPage} from './runtime/source-verification-page.mjs';
 import {fetchMediaUpstream,forwardMediaBody} from './runtime/media-forward.mjs';
+import {mediaClientResult} from './runtime/media-client-result.mjs';
+import {createAliPreviewFetch} from './runtime/ali-media-redirect.mjs';
 import {resolvePlayerPage,streamTsMedia} from './runtime/player-page.mjs';
 
 import {catNodeEnabled,catNodeCatalog,catNodeRequest,isCatNodeSubscription,nodeCrawlerStatus} from './runtime/cat-node-client.mjs';
@@ -38,6 +40,7 @@ const persistentLog=createRuntimeLog(path.join(path.dirname(CONFIG_PATH),'logs')
 const CATALOG_CACHE_PATH = path.join(path.dirname(CONFIG_PATH), "catalog-cache.json");
 const cloudHost = new CloudHost(path.join(path.dirname(CONFIG_PATH), "cloud"),log);
 const aliPlayback=createAliPlayback({cacheFile:path.join(path.dirname(CONFIG_PATH),"ali-transfers.json"),credentials:()=>cloudHost.call({action:'credentials',provider:'aliyun'}),persist:values=>cloudHost.call({action:'ali-playback-persist',values:{refreshToken:values.refreshToken,access_token:values.accessToken,driveId:values.driveId}}),request:async (url,options)=>{const r=await remoteFetch(url,{...options,signal:AbortSignal.timeout(20000)});return readAliApiResponse(r);}});
+const mediaFetch=createAliPreviewFetch({fetcher:remoteFetch,authorization:()=>aliPlayback.mediaAuthorization()});
 const catAccountSyncs=new Map(),catSyncStates=new Map();
 let pendingAccountSync=Promise.resolve();
 function scheduleAccountSync(){pendingAccountSync=pendingAccountSync.catch(()=>{}).then(()=>syncCatAccounts()).catch(error=>log('账号后台同步失败',{status:502,code:error.code}));}
@@ -62,7 +65,7 @@ function catAccountStatus(account){
 function withCatAccountStatus(result){return {...result,accounts:(result.accounts||[]).map(account=>({...account,catSync:catAccountStatus(account)}))};}
 
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
-const VERSION = "0.3";
+const VERSION = "0.4";
 const TVBOX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 const TVBOX_ACCEPT = "application/json, text/plain, */*";
 const TVBOX_HEADERS = { accept: TVBOX_ACCEPT, "accept-language": "zh-CN,zh;q=0.9", "user-agent": TVBOX_USER_AGENT };
@@ -888,7 +891,7 @@ async function bridgeTvboxRuntimePlayer(req,request,site){
  if(Number(value?.parse)||Number(value?.jx))value=await resolvePlayerPage(value,remoteFetch,normalizeHttpHeaders(value.header||value.headers));
  const url=String(value?.url||value?.streamUrl||'').trim();if(!/^https?:\/\//i.test(url))throw createError(502,'Cat Node 没有返回 HTTP 播放地址');
  const token=mediaToken({url,siteId:site.key,resourcePath:url,headers:normalizeHttpHeaders(value.header||value.headers),transform:value.mediaTransform});
- const {mediaTransform,...result}=value;return {...result,parse:0,jx:0,url:'',streamUrl:publicBaseUrl(req)+'/api/media?token='+encodeURIComponent(token)};
+ return mediaClientResult(value,publicBaseUrl(req)+'/api/media?token='+encodeURIComponent(token));
 }
 
 async function bridgeTvboxSpider(req,request,site){
@@ -920,7 +923,7 @@ async function proxyMediaToken(req, res, token) {
   // Replacing its UA with the client's UA can return an anti-bot page.
   // Otherwise keep the HTTP client's stable default, independent of player UA.
   const cachedPlaylist = req.method === 'GET' && entry.playlist;
-  const upstream = cachedPlaylist ? new Response(cachedPlaylist.source,{headers:{'content-type':'application/vnd.apple.mpegurl'}}) : await fetchMediaUpstream(remoteFetch,entry.url,{method:req.method,headers,redirect:'follow'},res);
+  const upstream = cachedPlaylist ? new Response(cachedPlaylist.source,{headers:{'content-type':'application/vnd.apple.mpegurl'}}) : await fetchMediaUpstream(mediaFetch,entry.url,{method:req.method,headers,redirect:'follow'},res);
   const contentType = String(upstream.headers.get("content-type") || "").toLowerCase();
   const playlist = contentType.includes("mpegurl") || entry.url.toLowerCase().includes(".m3u8");
   if (req.method === "GET" && playlist && upstream.body) {
@@ -957,7 +960,7 @@ async function proxyMediaToken(req, res, token) {
   }
   if(req.method === "GET" && upstream.status===200 && ['hhjx-ts','hls-ts'].includes(entry.transform) && upstream.body) return streamTsMedia(upstream,res);
   const outputHeaders = {};
-  for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "last-modified", "etag"]) {
+  for (const name of ["content-type", "content-length", "content-range", "accept-ranges", "last-modified", "etag", "retry-after"]) {
     const value = upstream.headers.get(name);
     if (value) outputHeaders[name] = value;
   }
@@ -1201,10 +1204,10 @@ async function handler(req, res) {
   if (pathname === "/api/cloud/gateway" && req.method === "GET") return json(res,200,await cloudHost.call({action:"gateway-status"}));
   if (pathname === "/api/cloud/accounts" && req.method === "POST") {
     const body = await readJsonBody(req);
-    const allowed = new Set(["save","delete","enable","disable","login","validate","auth-start","auth-poll","auth-cancel"]);
+    const allowed = new Set(["save","delete","enable","disable","login","validate","auth-start","auth-poll","auth-cancel","tianyi-sms-send","tianyi-sms-submit"]);
     if (!allowed.has(body.action)) throw createError(400, "未知网盘账号操作");
     const result=await cloudHost.call(body);
-    if(catNodeEnabled() && (['save','delete','enable','disable','login','validate'].includes(body.action)||body.action==='auth-poll'&&result.state==='complete'))scheduleAccountSync();
+    if(catNodeEnabled() && (['save','delete','enable','disable','login','validate','tianyi-sms-submit'].includes(body.action)||body.action==='auth-poll'&&result.state==='complete'))scheduleAccountSync();
     return json(res, 200, result.accounts?withCatAccountStatus(result):result);
   }
   if (pathname === "/api/cloud/inspect" && req.method === "POST") return json(res, 200, await cloudHost.call({...await readJsonBody(req),action:"inspect"}));

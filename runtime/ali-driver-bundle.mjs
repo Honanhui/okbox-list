@@ -116,11 +116,11 @@ var CloudProtocolError = class extends Error {
 // tvbox-lite/runtime/ali-source/cloud/cloud-ali-device.js
 import crypto2 from "node:crypto";
 
-// 饭太硬CAT/node_modules/@noble/hashes/esm/cryptoNode.js
+// 肥猫CAT/node_modules/@noble/hashes/esm/cryptoNode.js
 import * as nc from "node:crypto";
 var crypto = nc && typeof nc === "object" && "webcrypto" in nc ? nc.webcrypto : nc && typeof nc === "object" && "randomBytes" in nc ? nc : void 0;
 
-// 饭太硬CAT/node_modules/@noble/hashes/esm/utils.js
+// 肥猫CAT/node_modules/@noble/hashes/esm/utils.js
 function isBytes(a) {
   return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
 }
@@ -256,7 +256,7 @@ function randomBytes(bytesLength = 32) {
   throw new Error("crypto.getRandomValues must be defined");
 }
 
-// 饭太硬CAT/node_modules/@noble/hashes/esm/_md.js
+// 肥猫CAT/node_modules/@noble/hashes/esm/_md.js
 function setBigUint64(view, byteOffset, value, isLE) {
   if (typeof view.setBigUint64 === "function")
     return view.setBigUint64(byteOffset, value, isLE);
@@ -376,7 +376,7 @@ var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
   1541459225
 ]);
 
-// 饭太硬CAT/node_modules/@noble/hashes/esm/sha2.js
+// 肥猫CAT/node_modules/@noble/hashes/esm/sha2.js
 var SHA256_K = /* @__PURE__ */ Uint32Array.from([
   1116352408,
   1899447441,
@@ -516,7 +516,7 @@ var SHA256 = class extends HashMD {
 };
 var sha256 = /* @__PURE__ */ createHasher(() => new SHA256());
 
-// 饭太硬CAT/node_modules/@noble/hashes/esm/hmac.js
+// 肥猫CAT/node_modules/@noble/hashes/esm/hmac.js
 var HMAC = class extends Hash {
   constructor(hash, _key) {
     super();
@@ -584,7 +584,7 @@ var HMAC = class extends Hash {
 var hmac = (hash, key, message) => new HMAC(hash, key).update(message).digest();
 hmac.create = (hash, key) => new HMAC(hash, key);
 
-// 饭太硬CAT/node_modules/@noble/curves/esm/utils.js
+// 肥猫CAT/node_modules/@noble/curves/esm/utils.js
 var _0n = /* @__PURE__ */ BigInt(0);
 var _1n = /* @__PURE__ */ BigInt(1);
 function _abool2(value, title = "") {
@@ -737,7 +737,7 @@ function memoized(fn) {
   };
 }
 
-// 饭太硬CAT/node_modules/@noble/curves/esm/abstract/modular.js
+// 肥猫CAT/node_modules/@noble/curves/esm/abstract/modular.js
 var _0n2 = BigInt(0);
 var _1n2 = BigInt(1);
 var _2n = /* @__PURE__ */ BigInt(2);
@@ -1082,7 +1082,7 @@ function mapHashToField(key, fieldOrder, isLE = false) {
   return isLE ? numberToBytesLE(reduced, fieldLen) : numberToBytesBE(reduced, fieldLen);
 }
 
-// 饭太硬CAT/node_modules/@noble/curves/esm/abstract/curve.js
+// 肥猫CAT/node_modules/@noble/curves/esm/abstract/curve.js
 var _0n3 = BigInt(0);
 var _1n3 = BigInt(1);
 function negateCt(condition, item) {
@@ -1360,7 +1360,7 @@ function _createCurveFields(type, CURVE, curveOpts = {}, FpFnLE) {
   return { CURVE, Fp, Fn };
 }
 
-// 饭太硬CAT/node_modules/@noble/curves/esm/abstract/weierstrass.js
+// 肥猫CAT/node_modules/@noble/curves/esm/abstract/weierstrass.js
 var divNearest = (num, den) => (num + (num >= 0 ? den : -den) / _2n2) / den;
 function _splitEndoScalar(k, basis, n) {
   const [[a1, b1], [a2, b2]] = basis;
@@ -2374,13 +2374,13 @@ function weierstrass(c) {
   return _ecdsa_new_output_to_legacy(c, signs);
 }
 
-// 饭太硬CAT/node_modules/@noble/curves/esm/_shortw_utils.js
+// 肥猫CAT/node_modules/@noble/curves/esm/_shortw_utils.js
 function createCurve(curveDef, defHash) {
   const create = (hash) => weierstrass({ ...curveDef, hash });
   return { ...create(defHash), create };
 }
 
-// 饭太硬CAT/node_modules/@noble/curves/esm/secp256k1.js
+// 肥猫CAT/node_modules/@noble/curves/esm/secp256k1.js
 var secp256k1_CURVE = {
   p: BigInt("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"),
   n: BigInt("0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141"),
@@ -2436,6 +2436,7 @@ function createAliDevice(userId) {
 function createAliRequestPolicy(request, { now = Date.now, wait = (ms) => new Promise((r) => setTimeout(r, ms)), interval = 250 } = {}) {
   let queue = Promise.resolve(), next = 0, cooldown = 0, strikes = 0;
   const values = /* @__PURE__ */ new Map();
+  const stableShareErrors = /* @__PURE__ */ new Set(["ShareLink.Forbidden", "ShareLink.Cancelled", "ShareLink.Expired", "ShareLink.NotFound", "ShareLinkNotFound"]);
   function limited() {
     const seconds = Math.max(1, Math.ceil((cooldown - now()) / 1e3));
     return Object.assign(Error("\u963F\u91CC\u63A5\u53E3\u6682\u65F6\u9650\u6D41\uFF0C\u8BF7\u5728" + seconds + "\u79D2\u540E\u91CD\u8BD5"), { statusCode: 429, retryAfterSeconds: seconds });
@@ -2479,7 +2480,10 @@ function createAliRequestPolicy(request, { now = Date.now, wait = (ms) => new Pr
       item.expires = now() + ttl;
       return value;
     }, (error) => {
-      values.delete(key);
+      if (ttl > 0 && stableShareErrors.has(error?.serviceCode)) {
+        item.pending = false;
+        item.expires = now() + Math.min(ttl, 3e4);
+      } else values.delete(key);
       throw error;
     });
     values.set(key, item);

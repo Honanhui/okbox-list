@@ -95,6 +95,11 @@ public final class CloudAccountStore {
             String incoming = values.optString(field).trim();
             if (!incoming.isEmpty()) secret.put(field, incoming);
         }
+        if ("tianyi".equals(provider.id) && previous != null) {
+            JSONObject old = previous.optJSONObject("secret");
+            if (old != null && (!old.optString("username").equals(secret.optString("username"))
+                    || !old.optString("password").equals(secret.optString("password")))) secret.remove("cookie");
+        }
         for (String field : new String[]{"refresh_token", "access_token", "open_token", "open_refresh_token", "open_access_token", "device_id", "captcha_token", "oauth_client_id", "token", "authorization", "loginuuid"}) {
             String incoming = values.optString(field).trim();
             if (!incoming.isEmpty()) secret.put(field, incoming);

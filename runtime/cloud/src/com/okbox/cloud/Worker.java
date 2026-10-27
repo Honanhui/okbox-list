@@ -21,6 +21,8 @@ public final class Worker {
    case "disable":return CloudAccountStore.setDisabled(id,true);
    case "login":return CloudAccountValidator.login(id);
    case "validate":return CloudAccountValidator.validate(id);
+   case "tianyi-sms-send":return CloudTianyi.send(id);
+   case "tianyi-sms-submit":return CloudTianyi.submit(id,r.optString("code"));
    case "auth-start":return CloudAuthService.start(p,r.optString("name"));
    case "auth-poll":return CloudAuthService.poll(r.optString("sessionId"));
    case "auth-cancel":return CloudAuthService.cancel(r.optString("sessionId"));

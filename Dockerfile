@@ -13,6 +13,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY server.js ./
 COPY public/index.html ./public/index.html
 COPY runtime/*.mjs ./runtime/
+COPY runtime/ali-source/util/service-error-code.js ./runtime/ali-source/util/service-error-code.js
 COPY runtime/cloud/src ./runtime/cloud/src
 COPY runtime/cloud/lib ./runtime/cloud/lib
 COPY config/config.example.json ./config/config.example.json

@@ -1,0 +1,50 @@
+TVBOX-LIST 0.4 GitHub增量源码
+
+适用仓库：Honanhui/okbox-list
+比较基准：GitHub main，树SHA fe8c448014c2de6d0a2e7fe991dc1a0247a48745
+共37个新增或修改文件。未附未修改文件、数据卷、账号、node_modules或Java编译产物。
+
+将ZIP解压，把文件按原路径覆盖本地仓库根目录，再上传GitHub；.github等隐藏目录也要保留。不是独立完整项目，不要把整个仓库删掉。
+
+版本及镜像：honamhui/okbox-list:0.4。新增天翼官方登录、短信身份验证、目录校验、加密Cookie保存及按Cat能力同步。验证码仅在管理页由你填写。账号数据仍由原服务器/data卷保存。
+
+实测：服务器已运行0.4，使用现有Cookie的天翼官方目录校验通过，本轮未发送短信。Node分享/原画播放遇HTTP400或授权同步缺失，尚未通过解码，不宣称全部播放支持完成。临时订阅已恢复、删除。
+
+修改清单：
+modified  .env.example
+modified  .gitattributes
+modified  .github/workflows/check.yml
+modified  DEPLOY.md
+modified  Dockerfile
+modified  INSTALL.md
+modified  README.md
+added  TIANYI-LOGIN.md
+modified  docker-compose.yml
+modified  okbox-list.sh
+modified  package-lock.json
+modified  package.json
+modified  public/index.html
+modified  runtime/ali-api-response.mjs
+modified  runtime/ali-driver-bundle.mjs
+added  runtime/ali-media-redirect.mjs
+modified  runtime/ali-playback.mjs
+modified  runtime/ali-source/util/ali-request-policy.js
+added  runtime/ali-source/util/service-error-code.js
+modified  runtime/cat-account-sync.mjs
+added  runtime/cat-network-env.mjs
+modified  runtime/cat-node-loader.mjs
+modified  runtime/cloud/src/com/okbox/cloud/CloudAccountStore.java
+modified  runtime/cloud/src/com/okbox/cloud/CloudAccountValidator.java
+added  runtime/cloud/src/com/okbox/cloud/CloudTianyi.java
+modified  runtime/cloud/src/com/okbox/cloud/Worker.java
+added  runtime/media-client-result.mjs
+modified  server.js
+modified  tools/check-ali-api-response.mjs
+added  tools/check-ali-media-redirect.test.mjs
+added  tools/check-ali-playback-cache.test.mjs
+modified  tools/check-ali-request-policy.test.mjs
+added  tools/check-cat-network-env.test.mjs
+added  tools/check-media-client-result.test.mjs
+modified  tools/check-native-cat-sync.mjs
+added  tools/check-tianyi-verification-ui.mjs
+added  tools/java/com/okbox/cloud/CloudTianyiTest.java
