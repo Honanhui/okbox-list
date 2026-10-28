@@ -21,6 +21,10 @@ public final class Worker {
    case "disable":return CloudAccountStore.setDisabled(id,true);
    case "login":return CloudAccountValidator.login(id);
    case "validate":return CloudAccountValidator.validate(id);
+   case "tianyi-check-result":
+    if (!"tianyi".equals(CloudAccountStore.account(id).optString("provider"))) throw new IllegalArgumentException("天翼账号不存在");
+    return CloudAccountStore.setValidation(id,"valid".equals(r.optString("state"))?"valid":("pending".equals(r.optString("state"))?"pending":"invalid"),r.optString("message"));
+   case "tianyi-interactive-login":return CloudTianyi.login(id,false);
    case "tianyi-sms-send":return CloudTianyi.send(id);
    case "tianyi-sms-submit":return CloudTianyi.submit(id,r.optString("code"));
    case "auth-start":return CloudAuthService.start(p,r.optString("name"));

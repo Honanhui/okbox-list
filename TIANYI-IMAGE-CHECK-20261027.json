@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-10-27T14:55:29.703Z",
+  "image": "honamhui/okbox-list:0.4",
+  "version": "0.4",
+  "platform": "linux/amd64",
+  "health": true,
+  "emptyAccountStore": true,
+  "tianyiProvider": true,
+  "smsUi": true,
+  "compiledSmsRoute": true,
+  "smsWithoutSessionRejected": true,
+  "realAccountLogin": false,
+  "realPlayback": false,
+  "dockerLoad": true,
+  "linuxJava17Fixture": true,
+  "archive": {
+    "name": "TVBOX-LIST-0.4-linux-amd64.tar",
+    "bytes": 178706944,
+    "sha256": "249836777e96cd9722d1fd1bbad0ad540656d206570ba3fc8940699300b4a688"
+  },
+  "temporaryContainerRemoved": true
+}

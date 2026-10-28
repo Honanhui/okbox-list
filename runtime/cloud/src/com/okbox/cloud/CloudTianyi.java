@@ -22,6 +22,7 @@ public final class CloudTianyi {
         JSONObject config, challenge;
         String lt, reqId, publicKey;
         long sentAt;
+        long lastSmsAttemptAt;
         int attempts;
         Session(JSONObject value) {
             this(value, OkHttp.client(12_000));
@@ -102,7 +103,8 @@ public final class CloudTianyi {
 
     public static synchronized JSONObject validate(String id) throws Exception {
         JSONObject secret = account(id);
-        if (secret.optString("cookie").isBlank()) return login(id);
+        if (secret.optString("cookie").isBlank())
+            throw new IllegalStateException("天翼未保存登录Cookie，请点击“登录 / 验证”完成登录；检查不会发起登录或发送验证码");
         try (Response response = OkHttp.client(12_000).newBuilder().followRedirects(false).followSslRedirects(false).build().newCall(new Request.Builder()
                 .url(CLOUD + "/api/open/file/listFiles.action?folderId=-11&pageNum=1&pageSize=1")
                 .header("Cookie", secret.getString("cookie")).header("Referer", CLOUD + "/").header("Accept", "application/json;charset=UTF-8").header("User-Agent", "Mozilla/5.0").build()).execute()) {
@@ -114,9 +116,22 @@ public final class CloudTianyi {
     }
 
     public static synchronized JSONObject login(String id) throws Exception {
+        return login(id, true);
+    }
+
+    public static synchronized JSONObject login(String id, boolean checkSavedCookie) throws Exception {
         pending.entrySet().removeIf(e -> e.getValue().expires <= System.currentTimeMillis());
+        JSONObject secret = account(id);
+        // An explicit login must not discard a still valid official session and
+        // unnecessarily ask the user to pass second-factor verification again.
+        if (checkSavedCookie && !secret.optString("cookie").isBlank()) {
+            try { return validate(id); }
+            catch (IllegalStateException invalid) {
+                if (!"天翼登录会话已失效，请重新登录完成验证".equals(invalid.getMessage())) throw invalid;
+            }
+        }
         if (pending.containsKey(id)) { current(id); return waiting(id); }
-        Session s = new Session(account(id));
+        Session s = new Session(secret);
         return begin(id, s);
     }
 
@@ -151,16 +166,40 @@ public final class CloudTianyi {
 
     public static synchronized JSONObject send(String id) throws Exception {
         Session s = current(id);
-        if (s.sentAt > 0 && System.currentTimeMillis() - s.sentAt < 60_000) throw new IllegalStateException("请等待60秒后再发送验证码");
-        s.sentAt = System.currentTimeMillis();
-        JSONObject result = post(s, "/api/logbox/oauth2/sendSmsCodeForSecondAuth.do", "mobile", s.challenge.getString("mobile"), "appKey", "cloud");
-        if (result.optInt("result", -1) != 0) throw new IllegalStateException("天翼短信发送未通过（代码 " + result.optInt("result", -1) + "），请稍后重试或使用官网验证");
-        return new JSONObject().put("state", "verify").put("message", "短信已发送，请填写验证码").put("retryAfter", 60);
+        long now = System.currentTimeMillis();
+        if (s.lastSmsAttemptAt > 0 && now - s.lastSmsAttemptAt < 60_000)
+            return new JSONObject().put("state", "verify").put("sent", false).put("retryAfter", (60_000 - (now - s.lastSmsAttemptAt) + 999) / 1000)
+                    .put("message", "仍在发送间隔内，请等待倒计时后手动重试；不会自动重发");
+        s.lastSmsAttemptAt = now;
+        JSONObject result;
+        try { result = post(s, "/api/logbox/oauth2/sendSmsCodeForSecondAuth.do", "mobile", s.challenge.getString("mobile"), "appKey", "cloud"); }
+        catch (Exception error) {
+            return new JSONObject().put("state", "verify").put("sent", false).put("retryAfter", 60)
+                    .put("message", "短信发送结果未确认；如已收到短信可填写，否则倒计时后手动重试，不会自动重发");
+        }
+        int code = result.optInt("result", -1);
+        if (code != 0) return new JSONObject().put("state", "verify").put("sent", false).put("code", code).put("retryAfter", 60)
+                .put("message", "天翼本次短信请求未通过（代码 " + code + "）" + smsReason(result)
+                        + "；保留当前验证会话，倒计时后可手动重试，不会自动重发");
+        s.sentAt = now;
+        return new JSONObject().put("state", "verify").put("sent", true).put("message", "短信已发送，请填写验证码").put("retryAfter", 60);
+    }
+
+    static String smsReason(JSONObject result) {
+        String message = result.optString("msg", "").trim();
+        if (message.isEmpty()) message = result.optString("message", "").trim();
+        if (message.isEmpty()) return "：天翼未提供具体错误说明";
+        // Only the public provider explanation belongs in the browser, never the response body.
+        message = message.replaceAll("https?://[^\\s]+", "[地址已隐藏]")
+                .replaceAll("(?i)(token|cookie|password|secret|authorization)\\s*[:=]\\s*[^\\s,;]+", "$1=[已隐藏]")
+                .replaceAll("[0-9]{7,}", "[号码已隐藏]")
+                .replaceAll("[\\r\\n]+", " ");
+        return "：" + message.substring(0, Math.min(200, message.length()));
     }
 
     public static synchronized JSONObject submit(String id, String code) throws Exception {
         Session s = current(id);
-        if (!code.matches("[0-9]{4,8}") || s.sentAt == 0) throw new IllegalArgumentException("请先发送并填写短信验证码");
+        if (!code.matches("[0-9]{4,8}") || s.lastSmsAttemptAt == 0) throw new IllegalArgumentException("请先发送并填写短信验证码");
         if (++s.attempts > 5) { pending.remove(id); throw new IllegalStateException("验证码尝试次数过多，请重新登录"); }
         JSONObject result = post(s, "/api/logbox/oauth2/submitForSecondAuth.do", "mobile", s.challenge.getString("mobile"), "appKey", "cloud",
                 "userName", "true".equals(s.challenge.optString("romaSecondAuth")) ? s.secret.getString("username") : encrypt(s, s.secret.getString("username")),

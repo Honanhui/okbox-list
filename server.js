@@ -1,3 +1,4 @@
+import {checkTianyiSession} from './runtime/tianyi-session-check.mjs';
 import {maskGithubSecrets} from './runtime/github-subscription.mjs';
 import {readAliApiResponse} from './runtime/ali-api-response.mjs';
 import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
@@ -898,8 +899,9 @@ async function bridgeTvboxSpider(req,request,site){
  if(!isDockerExecutableTvboxSite(site))throw createError(501,`源“${site.name}”尚未匹配 Cat Node 适配器`);
  if(request.action==='player')return bridgeTvboxRuntimePlayer(req,request,site);
  if(request.action==='detail'&&aliShare(request.id))return tvboxResult(await aliPlayback.detail(request.id));
- // Browsing does not require credentials. Account changes sync through the
- // management API, and playback still waits for synchronization above.
+ // Cloud-backed catalogues may need account authorization before playback.
+ // Reuse the per-runtime capability check and credential digests here too.
+ if(!isDj92Site(site)){await pendingAccountSync;await syncCatAccounts(site.runtimeBase);}
  const value=isDj92Site(site)?await dj92Request(request,remoteFetch):await catNodeRequest(site,request,remoteFetch);
  return tvboxResult(rewriteCatPosters(value,site,url=>publicBaseUrl(req)+'/api/media?token='+
    encodeURIComponent(mediaToken({url,siteId:site.key,headers:{}}))));
@@ -1206,8 +1208,19 @@ async function handler(req, res) {
     const body = await readJsonBody(req);
     const allowed = new Set(["save","delete","enable","disable","login","validate","auth-start","auth-poll","auth-cancel","tianyi-sms-send","tianyi-sms-submit"]);
     if (!allowed.has(body.action)) throw createError(400, "未知网盘账号操作");
-    const result=await cloudHost.call(body);
-    if(catNodeEnabled() && (['save','delete','enable','disable','login','validate','tianyi-sms-submit'].includes(body.action)||body.action==='auth-poll'&&result.state==='complete'))scheduleAccountSync();
+    let result;
+    if(['validate','login'].includes(body.action)){
+      const catalog=await cloudHost.call({action:'catalog'}),account=catalog.accounts?.find(item=>item.id===body.id&&item.provider==='tianyi');
+      if(account&&!account.disabled){
+        const secret=await cloudHost.call({action:'credentials',provider:'tianyi'}),checked=await checkTianyiSession(secret,remoteFetch);
+        log('天翼只读会话校验',{state:checked.state,endpoint:checked.networkRequested?'api.cloud.189.cn/open/file/listFiles.action':'none',networkRequested:checked.networkRequested===true,passwordSubmitted:false,autoLogin:false,providerMessage:checked.message});
+        result=body.action==='login'&&checked.requiresLogin===true?await cloudHost.call({action:'tianyi-interactive-login',id:body.id}):await cloudHost.call({action:'tianyi-check-result',id:body.id,...checked});
+      }
+    }
+    if(!result)result=await cloudHost.call(body);
+    if(body.action==='login'&&result.accounts?.some(account=>account.id===body.id&&account.provider==='tianyi'))log('天翼登录结果',{state:result.state,verificationType:result.verificationType||'',providerMessage:result.message});
+    if(body.action==='tianyi-sms-send')log('天翼短信发送结果',{sent:result.sent===true,providerCode:result.code??0,providerMessage:result.message});
+    if(catNodeEnabled() && (['save','delete','enable','disable'].includes(body.action)||['login','tianyi-sms-submit'].includes(body.action)&&result.state==='valid'||body.action==='auth-poll'&&result.state==='complete'))scheduleAccountSync();
     return json(res, 200, result.accounts?withCatAccountStatus(result):result);
   }
   if (pathname === "/api/cloud/inspect" && req.method === "POST") return json(res, 200, await cloudHost.call({...await readJsonBody(req),action:"inspect"}));

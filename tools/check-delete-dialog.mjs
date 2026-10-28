@@ -1,0 +1,12 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const html=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
+const start=html.indexOf('let deleteConfirmation='),end=html.indexOf('async function deleteSource(',start);
+let dialog;const previous={isConnected:true,focus(){this.focused=true;}};
+const c={document:{activeElement:previous,body:{append(){}},createElement(){const nodes={},events={};dialog={setAttribute(){},querySelector:key=>nodes[key]||=( {} ),addEventListener:(key,fn)=>events[key]=fn,showModal(){this.open=true},close(){this.open=false;events.close?.()},remove(){this.removed=true},events};return dialog;}}};
+vm.createContext(c);vm.runInContext(html.slice(start,end),c);
+let result=c.confirmDelete('<script>untrusted name</script>');assert.equal(dialog.open,true);assert.equal(dialog.querySelector('p').textContent,'<script>untrusted name</script>');
+assert.equal(await c.confirmDelete('duplicate'),false);dialog.querySelector('[data-cancel]').onclick();assert.equal(await result,false);assert.equal(previous.focused,true);
+result=c.confirmDelete('delete');dialog.querySelector('[data-confirm]').onclick();assert.equal(await result,true);assert.equal(dialog.removed,true);
+result=c.confirmDelete('cancel');dialog.events.cancel({preventDefault(){}});assert.equal(await result,false);
+assert.ok(!/\bconfirm\(/.test(html));
+console.log('PASS: centered confirmation, cancel/confirm, duplicate-click guard, safe text and focus restoration');
