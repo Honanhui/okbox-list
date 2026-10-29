@@ -4,4 +4,4 @@ services:
     build:
       context: .
       args:
-        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        NODE_IMAGE: ${NODE_IMAGE:-docker.1ms.run/library/node:22-alpine}

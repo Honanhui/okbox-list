@@ -509,20 +509,24 @@ function normalizeConfig(value) {
   // `sites` remains an empty internal compatibility slot for the old /vod
   // handlers. New configurations never accept or expose AList site records.
   const activeId = configUrls.some(item => item.id === String(value?.activeId)) ? String(value.activeId) : (configUrls[0]?.id || "");
-  return { settings: { playMode, defaultSiteId }, configUrls, refreshMinutes, sites: [], activeId, revision: Number(value?.revision || 0) };
+  return { settings: { playMode, defaultSiteId }, configUrls, refreshMinutes, sites: [], activeId, deviceSelections: value?.deviceSelections || {}, revision: Number(value?.revision || 0) };
 }
 
+function selectedSubscriptionId() {
+ const client=requestContext.getStore()?.clientId;
+ return client ? (config.deviceSelections?.[client] || config.activeId) : config.activeId;
+}
 function activeTvboxSites() {
-  return tvboxSites.filter(site => site.configId === config.activeId && !isCatSetupSite(site));
+  return tvboxSites.filter(site => site.configId === selectedSubscriptionId() && !isCatSetupSite(site));
 }
 
 function subscriptionCatalog() {
   return {
-    activeId: config.activeId || "", revision: config.revision || 0,
+    activeId: selectedSubscriptionId() || "", revision: config.revision || 0,
     bridge: bridgeHealth(),
     sources: config.configUrls.map(item => {
       const status = configStatuses.find(status => status.id === item.id);
-      return { ...item, active: item.id === config.activeId, state: ({ok:"ready",refreshing:"fetching"})[status?.state] || status?.state || "pending",
+      return { ...item, active: item.id === selectedSubscriptionId(), state: ({ok:"ready",refreshing:"fetching"})[status?.state] || status?.state || "pending",
         siteCount: tvboxSites.filter(site => site.configId === item.id && !isCatSetupSite(site)).length,
         nextRetryAt: status?.nextRetryAt || null,
         error: ["error", "stale"].includes(status?.state) ? status.message : "" };
@@ -531,11 +535,11 @@ function subscriptionCatalog() {
 }
 
 function bridgeHealth() {
-  const status = configStatuses.find(item => item.id === config.activeId);
+  const status = configStatuses.find(item => item.id === selectedSubscriptionId());
   const count = activeTvboxSites().length;
   return { state: count ? "ready" : status?.state === "refreshing" ? "loading" : "error",
     message: count ? "配置已加载" : status?.message || "请添加订阅源", sources: count,
-    url: config.configUrls.find(item => item.id === config.activeId)?.url || "" };
+    url: config.configUrls.find(item => item.id === selectedSubscriptionId())?.url || "" };
 }
 
 async function subscriptionAction(body) {
@@ -544,7 +548,9 @@ async function subscriptionAction(body) {
     const target = config.configUrls.find(item => item.id === id && item.enabled);
     if (!target) throw createError(404, "订阅源不存在或已停用");
     if (!tvboxSites.some(site => site.configId === id)) throw createError(409, "订阅尚未抓取成功，请等待抓取完成后切换");
-    await saveConfig({ ...config, activeId: id, revision: (config.revision || 0) + 1 });
+    const client=requestContext.getStore()?.clientId;
+    if(!client) throw createError(400,'缺少设备标识');
+    await saveConfig({...config,deviceSelections:{...config.deviceSelections,[client]:id}});
     return { ...subscriptionCatalog(), accepted: true };
   }
   if (body.action === "save") {
@@ -975,7 +981,7 @@ function subscriptionConfig(req, requestedId) {
   // Keep every subscription address independent. `/sub/{id}` is the
   // server-owned subscription generated for exactly one remote config URL.
   const ids = config.configUrls.map((item) => item.id);
-  const selectedId = !requestedId ? config.activeId : requestedId === "0" && !ids.includes("0") ? ids[0] : requestedId;
+  const selectedId = !requestedId ? selectedSubscriptionId() : requestedId === "0" && !ids.includes("0") ? ids[0] : requestedId;
   if (selectedId === "all") throw createError(400, "请使用多仓入口选择独立订阅，不支持合并全部仓库");
   const activeSites = tvboxSites.filter((site) => !isCatSetupSite(site) && site.configId === selectedId);
   const metadata = configMetadata.get(selectedId) || { parses: [], lives: [], rules: [] };
@@ -1329,7 +1335,9 @@ restoreCatalogCache();
 startCatalogRefresh();
 scheduleCatalogRefresh();
 const server = http.createServer((req, res) => {
-  const context={requestId:crypto.randomUUID(),method:req.method,path:new URL(req.url,'http://localhost').pathname};
+  const requestedClient=new URL(req.url,'http://localhost').searchParams.get('clientId') || req.headers['x-okbox-client-id'];
+  const clientId=crypto.createHash('sha256').update(String(requestedClient || ('legacy:'+req.socket.remoteAddress))).digest('hex');
+  const context={clientId,requestId:crypto.randomUUID(),method:req.method,path:new URL(req.url,'http://localhost').pathname};
   requestContext.run(context,()=>{
     const start=Date.now();let bytes=0,finished=false;
     const originalWrite=res.write.bind(res),originalEnd=res.end.bind(res);

@@ -208,7 +208,7 @@ GitHub 脚本与 Docker Hub 镜像尚未由本次工作发布，远程命令需�
 | `CONFIG_PATH` | `/data/config.json` | 配置位置 |
 | `TZ` | Compose 中为 `Asia/Shanghai` | 时区 |
 | `ADMIN_TOKEN` | 空 | 可选管理令牌，后台请求管理接口时输入 |
-| `NODE_IMAGE` | `node:22-alpine` | Compose 构建基础镜像 |
+| `NODE_IMAGE` | `docker.1ms.run/library/node:22-alpine` | Compose 构建基础镜像 |
 
 Cat 内部服务为 `127.0.0.1:9988`，无需对外开放。公网部署应配置访问保护与 HTTPS；管理令牌控制管理 API，不等同于全部播放接口的用户认证。
 
