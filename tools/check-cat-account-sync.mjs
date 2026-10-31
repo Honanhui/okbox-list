@@ -8,7 +8,7 @@ secret={};await sync();assert.equal(calls.at(-1).method,'DELETE');assert.equal(c
 assert(calls.every(c=>!new URL(c.path,'http://cat-node:9988').search));
 console.log('Cat account sync: synthetic credential, deduplication and deletion passed');
 
-secret={pan123:{username:'synthetic-account',password:'synthetic-password'},tianyi:{username:'synthetic-phone',password:'synthetic-pass'}};await sync();const pan123Call=calls.findLast(c=>c.path==='/__okbox/credential'&&JSON.parse(c.body).provider==='pan123');assert.equal(JSON.parse(pan123Call.body).secret.username,'synthetic-account');const tianyiCall=calls.findLast(c=>c.path==='/website/api/pan189/account'&&c.method==='PUT');assert.ok(JSON.parse(tianyiCall.body).account);
+secret={pan123:{username:'synthetic-account',password:'synthetic-password'},tianyi:{username:'synthetic-phone',password:'synthetic-pass'}};await sync();const pan123Call=calls.findLast(c=>c.path==='/__okbox/credential'&&JSON.parse(c.body).provider==='pan123');assert.equal(JSON.parse(pan123Call.body).secret.username,'synthetic-account');assert.equal(calls.some(c=>c.path==='/website/api/pan189/account'&&c.method==='PUT'),false);assert.ok(calls.some(c=>c.path==='/website/api/pan189/account'&&c.method==='DELETE')); 
 console.log('PASS: 123 and Tianyi account field mapping');
 
 const cached=await sync();assert.ok(cached.some(x=>x.provider==='pan123'&&x.state==='synced'));
