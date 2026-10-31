@@ -22,7 +22,7 @@ jobs:
           node tools/check-cat-account-sync.mjs
           node tools/check-ali-api-response.mjs
           node tools/check-tianyi-verification-ui.mjs
-          node --test tools/check-catalogue-authorization.test.mjs
+          node --test tools/check-catalogue-authorization.test.mjs tools/check-cat-native-pan123.test.mjs tools/check-builtin-cat.test.mjs
       - name: Build deployment image
         run: docker build --tag okbox-list:ci .
 

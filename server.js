@@ -1,4 +1,5 @@
 import {checkTianyiSession} from './runtime/tianyi-session-check.mjs';
+import {serveBuiltinCat} from './runtime/builtin-cat.mjs';
 import {maskGithubSecrets} from './runtime/github-subscription.mjs';
 import {readAliApiResponse} from './runtime/ali-api-response.mjs';
 import {createAliPlayback,aliShare,aliEpisode} from './runtime/ali-playback.mjs';
@@ -1176,6 +1177,7 @@ async function serveStatic(req, res, pathname) {
 async function handler(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = url.pathname;
+  if(await serveBuiltinCat(req,res,pathname,ROOT))return;
   if (pathname.startsWith("/cloud/")) {
     if (!["127.0.0.1","::1","::ffff:127.0.0.1"].includes(req.socket.remoteAddress)) throw createError(403,"凭据接口仅限服务端内部使用");
     if (pathname === "/cloud/config") return json(res,200,await cloudHost.call({action:"gateway-config"}));

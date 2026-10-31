@@ -454,6 +454,7 @@ public final class CloudAccountStore {
         add(items, new Provider("uc", "UC 网盘", "cookie", "0", 8, new String[]{"cookie"}, "Cookie"));
         add(items, new Provider("uctv", "UC TV 网盘", "token", "0", 2, new String[]{"token"}, "TV Token"));
         add(items, new Provider("pan115", "115 网盘", "cookie", "0", 2, new String[]{"cookie"}, "Cookie"));
+        add(items, new Provider("pan123community", "配置123社区Cookie", "cookie", "0", 1, new String[]{"cookie"}, "123社区 Cookie（登录 pan1.me 后获取）"));
         add(items, new Provider("pan123", "123 网盘", "password", "0", 1, new String[]{"username", "password"}, "账号", "密码"));
         add(items, new Provider("tianyi", "天翼云盘", "password", "-11", 1, new String[]{"username", "password"}, "账号", "密码"));
         add(items, new Provider("mobile139", "移动云盘", "token", "0", 1, new String[]{"token"}, "令牌"));

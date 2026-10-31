@@ -18,6 +18,7 @@ COPY runtime/ali-source/util/service-error-code.js ./runtime/ali-source/util/ser
 COPY runtime/cloud/src ./runtime/cloud/src
 COPY runtime/cloud/lib ./runtime/cloud/lib
 COPY config/config.example.json ./config/config.example.json
+COPY builtin ./builtin
 COPY THIRD-PARTY-LICENSES ./THIRD-PARTY-LICENSES
 COPY THIRD-PARTY.md ./THIRD-PARTY.md
 COPY --from=cloud-builder /out/classes /app/runtime/cloud/classes

@@ -36,6 +36,7 @@ public final class CloudAccountValidator {
                 case "baidu" -> validateBaidu(secret);
                 case "mobile139" -> validateMobileAuthorization(account, secret);
                 case "pan123" -> validate123(secret);
+                case "pan123community" -> validate123Community(secret);
                 case "thunder" -> validateThunder(secret);
                 case "bilibili" -> validateBilibili(secret);
                 default -> throw new IllegalStateException("尚未实现该网盘的官方登录校验，无法确认凭证有效性");
@@ -187,6 +188,17 @@ public final class CloudAccountValidator {
         JSONObject secret = CloudTokenService.ensureFresh("aliyun");
         if (first(secret, "access_token", "accessToken").isEmpty()) throw new IllegalStateException("阿里云盘授权已失效，请重新扫码登录");
         return "登录有效，Token 已刷新";
+    }
+
+    private static String validate123Community(JSONObject secret) throws Exception {
+        String cookie = secret.optString("cookie").trim();
+        if (cookie.isEmpty() || cookie.contains("\r") || cookie.contains("\n")) throw new IllegalStateException("请填写有效的123社区Cookie");
+        Request request = new Request.Builder().url("https://pan1.me/my.htm").header("Cookie", cookie).header("User-Agent", "Mozilla/5.0").build();
+        try (Response response = OkHttp.client(12000).newBuilder().followRedirects(false).build().newCall(request).execute()) {
+            String html = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful() || !html.contains("user-logout.htm")) throw new IllegalStateException("社区Cookie未通过登录校验，请在pan1.me正常登录后更新");
+            return "社区登录有效；已授权需要时单次回复解锁帖子";
+        }
     }
 
     private static String validate123(JSONObject secret) throws Exception {
