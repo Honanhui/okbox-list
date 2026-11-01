@@ -558,6 +558,17 @@ final class CloudProviderQrService {
     private static JSONObject saveCookie(String id, Session session, String cookie, String message) throws Exception {
         if (cookie == null || cookie.isBlank()) throw new IllegalStateException(CloudAccountStore.providerName(session.provider) + "没有返回登录 Cookie");
         JSONObject saved = CloudAccountStore.save("", session.provider, session.name, new JSONObject().put("cookie", cookie));
+        if ("pan115".equals(session.provider)) {
+            org.json.JSONArray accounts = saved.optJSONArray("accounts");
+            if (accounts != null) for (int i = 0; i < accounts.length(); i++) {
+                JSONObject account = accounts.getJSONObject(i);
+                if (!"pan115".equals(account.optString("provider"))) continue;
+                JSONObject checked = CloudAccountValidator.validate(account.getString("id"));
+                saved = checked;
+                message = "valid".equals(checked.optString("state")) ? checked.optString("message") : "115扫码凭据已保存；账号信息检查未通过，请点击检查重试";
+                break;
+            }
+        }
         SESSIONS.remove(id);
         return new JSONObject().put("state", "complete").put("message", message).put("accounts", saved.optJSONArray("accounts"));
     }

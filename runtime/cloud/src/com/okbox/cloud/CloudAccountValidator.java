@@ -36,6 +36,7 @@ public final class CloudAccountValidator {
                 case "baidu" -> validateBaidu(secret);
                 case "mobile139" -> validateMobileAuthorization(account, secret);
                 case "pan123" -> validate123(secret);
+                case "pan115" -> validate115(secret);
                 case "pan123community" -> validate123Community(secret);
                 case "thunder" -> validateThunder(secret);
                 case "bilibili" -> validateBilibili(secret);
@@ -190,6 +191,23 @@ public final class CloudAccountValidator {
         return "登录有效，Token 已刷新";
     }
 
+    private static String validate115(JSONObject secret) throws Exception {
+        String cookie = secret.optString("cookie").trim();
+        if (cookie.isEmpty() || cookie.contains("\r") || cookie.contains("\n")) throw new IllegalStateException("请填写有效的115 Cookie");
+        Request request = new Request.Builder().url("https://my.115.com/?ct=ajax&ac=nav")
+            .header("Cookie", cookie).header("Referer", "https://115.com/")
+            .header("User-Agent", "Mozilla/5.0").build();
+        return parse115Identity(official(request, "115"));
+    }
+
+    static String parse115Identity(JSONObject result) {
+        JSONObject data = result.optJSONObject("data");
+        if (!result.optBoolean("state") || data == null || first(data, "user_id", "uid").isEmpty())
+            throw new IllegalStateException("115 Cookie未通过登录校验，请重新登录后更新");
+        String name = first(data, "user_name", "uname", "nick_name", "nickname");
+        return name.isEmpty() ? "115登录有效；接口未返回账号名称" : "115登录有效，账号：" + name;
+    }
+
     private static String validate123Community(JSONObject secret) throws Exception {
         String cookie = secret.optString("cookie").trim();
         if (cookie.isEmpty() || cookie.contains("\r") || cookie.contains("\n")) throw new IllegalStateException("请填写有效的123社区Cookie");
@@ -197,8 +215,49 @@ public final class CloudAccountValidator {
         try (Response response = OkHttp.client(12000).newBuilder().followRedirects(false).build().newCall(request).execute()) {
             String html = response.body() == null ? "" : response.body().string();
             if (!response.isSuccessful() || !html.contains("user-logout.htm")) throw new IllegalStateException("社区Cookie未通过登录校验，请在pan1.me正常登录后更新");
-            return "社区登录有效；已授权需要时单次回复解锁帖子";
+            String username = communityUsername(html);
+            if (username.isEmpty()) {
+                Request profileRequest = request.newBuilder().url("https://pan1.me/?my-profile.htm").build();
+                try (Response profile = OkHttp.client(12000).newBuilder().followRedirects(false).build().newCall(profileRequest).execute()) {
+                    String page = profile.body() == null ? "" : profile.body().string();
+                    if (profile.isSuccessful() && page.contains("user-logout.htm")) username = communityUsername(page);
+                } catch (Exception ignored) { /* Valid login remains valid if the optional name lookup fails. */ }
+            }
+            return username.isEmpty() ? "社区登录有效；页面未返回账号名称" : "社区登录有效，账号：" + username;
         }
+    }
+
+
+    /** Only read the signed-in profile form/navigation; never a post author or script value. */
+    static String communityUsername(String html) throws Exception {
+        final String[] name = {""};
+        new javax.swing.text.html.parser.ParserDelegator().parse(new java.io.StringReader(html), new javax.swing.text.html.HTMLEditorKit.ParserCallback() {
+            boolean profile = false;
+            final StringBuilder text = new StringBuilder();
+            public void handleStartTag(javax.swing.text.html.HTML.Tag tag, javax.swing.text.MutableAttributeSet attrs, int pos) {
+                if (tag == javax.swing.text.html.HTML.Tag.A) {
+                    Object href = attrs.getAttribute(javax.swing.text.html.HTML.Attribute.HREF);
+                    profile = href != null && href.toString().matches("(?:https://pan1[.]me/|/)?[?]?my(?:-profile)?[.]htm(?:[?#].*)?");
+                    text.setLength(0);
+                }
+            }
+            public void handleText(char[] data, int pos) { if (profile) text.append(data); }
+            public void handleEndTag(javax.swing.text.html.HTML.Tag tag, int pos) {
+                if (tag == javax.swing.text.html.HTML.Tag.A && profile) {
+                    String value = text.toString().trim();
+                    if (!value.isEmpty() && !value.matches("我的.*|个人.*|账号.*|设置|用户中心")) name[0] = value;
+                    profile = false;
+                }
+            }
+            public void handleSimpleTag(javax.swing.text.html.HTML.Tag tag, javax.swing.text.MutableAttributeSet attrs, int pos) {
+                if (tag == javax.swing.text.html.HTML.Tag.INPUT && "username".equals(String.valueOf(attrs.getAttribute(javax.swing.text.html.HTML.Attribute.NAME)))) {
+                    Object value = attrs.getAttribute(javax.swing.text.html.HTML.Attribute.VALUE);
+                    if (value != null) name[0] = value.toString().trim();
+                }
+            }
+        }, true);
+        String clean = name[0].replaceAll("[\\p{Cntrl}]", "").strip();
+        return clean.substring(0, Math.min(80, clean.length()));
     }
 
     private static String validate123(JSONObject secret) throws Exception {
