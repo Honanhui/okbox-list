@@ -17,3 +17,7 @@ test('Community Cookie is capability gated, separate from drive token, and clear
   const body=JSON.parse(opts.body);sent.push(body);return Response.json({code:0,state:Object.keys(body.secret).length?'synced':'cleared'});
  }});await sync();assert.deepEqual(sent.find(x=>x.provider==='pan123community').secret,{cookie});assert.ok(sent.filter(x=>x.provider!=='pan123community').every(x=>!x.secret.cookie));cookie='';await sync();assert.deepEqual(sent.filter(x=>x.provider==='pan123community').at(-1).secret,{});
 });
+test('Native Tianyi sync forwards issued session only and never passwords or refresh credentials',async()=>{
+ const sent=[];const sync=createCatAccountSync({baseUrl:'http://127.0.0.1:9988/',credentials:async p=>p==='tianyi'?{cookie:'fixture-cookie',access_token:'fixture-token',password:'never-send',username:'never-send',refresh_token:'never-send'}:{},fetcher:async(url,opts={})=>{if(new URL(url).pathname==='/__okbox/capabilities')return Response.json({credentialMode:'tvbox-list',instanceId:'tianyi-fixture',providers:['tianyi']});const body=JSON.parse(opts.body);sent.push(body);return Response.json({code:0,state:'synced'});}});
+ await sync();assert.deepEqual(sent.find(x=>x.provider==='tianyi').secret,{cookie:'fixture-cookie',access_token:'fixture-token'});assert.ok(!JSON.stringify(sent).includes('never-send'));
+});

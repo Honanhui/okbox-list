@@ -233,19 +233,29 @@ public final class CloudAccountValidator {
         final String[] name = {""};
         new javax.swing.text.html.parser.ParserDelegator().parse(new java.io.StringReader(html), new javax.swing.text.html.HTMLEditorKit.ParserCallback() {
             boolean profile = false;
+            int sidebarDepth = 0;
+            final StringBuilder sidebarText = new StringBuilder();
             final StringBuilder text = new StringBuilder();
             public void handleStartTag(javax.swing.text.html.HTML.Tag tag, javax.swing.text.MutableAttributeSet attrs, int pos) {
+                if (tag == javax.swing.text.html.HTML.Tag.DIV) {
+                    String cls = String.valueOf(attrs.getAttribute(javax.swing.text.html.HTML.Attribute.CLASS));
+                    if (sidebarDepth > 0) sidebarDepth++;
+                    else if (java.util.Arrays.asList(cls.split(" ")).contains("sidebar-user-section-username")) { sidebarDepth=1; sidebarText.setLength(0); }
+                }
                 if (tag == javax.swing.text.html.HTML.Tag.A) {
                     Object href = attrs.getAttribute(javax.swing.text.html.HTML.Attribute.HREF);
-                    profile = href != null && href.toString().matches("(?:https://pan1[.]me/|/)?[?]?my(?:-profile)?[.]htm(?:[?#].*)?");
+                    profile = "username".equals(String.valueOf(attrs.getAttribute(javax.swing.text.html.HTML.Attribute.CLASS))) && href != null && href.toString().matches("(?:https://pan1[.]me/|/)?[?]?my(?:-profile)?[.]htm(?:[?#].*)?");
                     text.setLength(0);
                 }
             }
-            public void handleText(char[] data, int pos) { if (profile) text.append(data); }
+            public void handleText(char[] data, int pos) { if (profile) text.append(data); if (sidebarDepth > 0) sidebarText.append(data); }
             public void handleEndTag(javax.swing.text.html.HTML.Tag tag, int pos) {
+                if (tag == javax.swing.text.html.HTML.Tag.DIV && sidebarDepth > 0 && --sidebarDepth == 0) {
+                    String value=sidebarText.toString().trim(); if(!value.isEmpty()) name[0]=value;
+                }
                 if (tag == javax.swing.text.html.HTML.Tag.A && profile) {
                     String value = text.toString().trim();
-                    if (!value.isEmpty() && !value.matches("我的.*|个人.*|账号.*|设置|用户中心")) name[0] = value;
+                    if (!value.isEmpty() && !value.matches("我的.*|个人.*|账号.*|设置|用户中心|基本资料|修改密码|修改头像")) name[0] = value;
                     profile = false;
                 }
             }

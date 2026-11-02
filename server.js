@@ -1,3 +1,4 @@
+import {createTianyiQrAuth,checkTianyiWeb} from './runtime/tianyi-web-auth.mjs';
 import {checkTianyiSession} from './runtime/tianyi-session-check.mjs';
 import {serveBuiltinCat} from './runtime/builtin-cat.mjs';
 import {maskGithubSecrets} from './runtime/github-subscription.mjs';
@@ -46,6 +47,7 @@ const mediaFetch=createAliPreviewFetch({fetcher:remoteFetch,authorization:()=>al
 const catAccountSyncs=new Map(),catSyncStates=new Map();
 let pendingAccountSync=Promise.resolve();
 function scheduleAccountSync(){pendingAccountSync=pendingAccountSync.catch(()=>{}).then(()=>syncCatAccounts()).catch(error=>log('账号后台同步失败',{status:502,code:error.code}));}
+const tianyiQrAuth=createTianyiQrAuth({fetcher:(...args)=>remoteFetch(...args),save:async(values,name)=>{const checked=await checkTianyiWeb(values,remoteFetch);if(checked.state!=='valid')throw Error(checked.message);const saved=await cloudHost.call({action:'save',provider:'tianyi',name,values});const account=saved.accounts?.find(x=>x.provider==='tianyi');if(!account)throw Error('天翼账号保存失败');const result=await cloudHost.call({action:'tianyi-check-result',id:account.id,...checked});return {...result,state:'complete',message:checked.message};}});
 async function syncCatAccounts(runtimeBase){
  if(!catNodeEnabled())return [];
  const bases=runtimeBase?[runtimeBase]:[...new Set(tvboxSites.map(site=>site.runtimeBase).filter(Boolean))];
@@ -1216,13 +1218,14 @@ async function handler(req, res) {
     const body = await readJsonBody(req);
     const allowed = new Set(["save","delete","enable","disable","login","validate","auth-start","auth-poll","auth-cancel","tianyi-sms-send","tianyi-sms-submit"]);
     if (!allowed.has(body.action)) throw createError(400, "未知网盘账号操作");
-    let result;
+    let result=await tianyiQrAuth(body,requestContext.getStore()?.clientId||'');
+    if(['tianyi-sms-send','tianyi-sms-submit'].includes(body.action))throw createError(400,'天翼已改为扫码登录，不使用短信登录');
     if(['validate','login'].includes(body.action)){
       const catalog=await cloudHost.call({action:'catalog'}),account=catalog.accounts?.find(item=>item.id===body.id&&item.provider==='tianyi');
       if(account&&!account.disabled){
-        const secret=await cloudHost.call({action:'credentials',provider:'tianyi'}),checked=await checkTianyiSession(secret,remoteFetch);
+        const secret=await cloudHost.call({action:'credentials',provider:'tianyi'}),checked=await checkTianyiWeb(secret,remoteFetch);
         log('天翼只读会话校验',{state:checked.state,endpoint:checked.networkRequested?'api.cloud.189.cn/open/file/listFiles.action':'none',networkRequested:checked.networkRequested===true,passwordSubmitted:false,autoLogin:false,providerMessage:checked.message});
-        result=body.action==='login'&&checked.requiresLogin===true?await cloudHost.call({action:'tianyi-interactive-login',id:body.id}):await cloudHost.call({action:'tianyi-check-result',id:body.id,...checked});
+        result=await cloudHost.call({action:'tianyi-check-result',id:body.id,...checked});
       }
     }
     if(!result)result=await cloudHost.call(body);

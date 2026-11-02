@@ -9,5 +9,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "tough-cookie": "^6.0.2"
   }
 }
