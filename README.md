@@ -232,7 +232,6 @@ Cat 内部服务为 `127.0.0.1:9988`，无需对外开放。公网部署应配�
 
 ## 参考与依赖
 
-- [FlyCloudHelper](https://github.com/fbinba3955/FlyCloudHelper)：README 组织方式参考。
 - [alist-tvbox](https://github.com/power721/alist-tvbox)、[OpenList](https://github.com/OpenListTeam/OpenList)：网盘授权与服务组织方式参考。
 - Java 模块使用 org.json、OkHttp、Okio、ZXing，依赖许可保留各自声明。
 
